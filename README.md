@@ -2,6 +2,7 @@
 
 [Bencode](https://en.wikipedia.org/wiki/Bencode) is an text encoding format, not too dissimilar from JSON.
 This library can encode and decode it, with an API and code close the `std.json` in the Zig standard library.
+No other dependencies than the Zig standard library.
 
 ## Decode (parse)
 
@@ -59,6 +60,9 @@ $ zig run bencode_to_yaml.zig --  "d8:integersli0ei5000ei-1ee11:hello,world3:foo
 "abc": -99
 ```
 
+### Deviatiosn from the standard
+
+- No check that dictionary keys are ordered (last one wins in case of duplicates)
 
 ## Encode (stringify)
 
