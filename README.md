@@ -1,7 +1,7 @@
 # Bencode encoder/decoder
 
-[Bencode](https://en.wikipedia.org/wiki/Bencode) is an text encoding format.
-This library can encode and decode it, with an API and code close the `std.json` in the standard library.
+[Bencode](https://en.wikipedia.org/wiki/Bencode) is an text encoding format, not too dissimilar from JSON.
+This library can encode and decode it, with an API and code close the `std.json` in the Zig standard library.
 
 ## Decode (parse)
 
