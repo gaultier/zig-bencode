@@ -46,6 +46,21 @@ test "parse object into ValueTree" {
 
 See the tests for more details, e.g about errors.
 
+### Try it out
+
+```sh
+$ zig run bencode_to_yaml.zig --  "d8:integersli0ei5000ei-1ee11:hello,world3:foo3:abci-99ee"
+
+"integers":   - 0
+  - 5000
+  - -1
+
+"hello,world": "foo"
+"abc": -99
+```
+
+
 ## Encode (stringify)
 
 *TODO*
+
