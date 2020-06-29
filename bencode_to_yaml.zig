@@ -11,19 +11,19 @@ fn dump(value: bencode.Value, indent: usize) anyerror!void {
         },
         .Array => |arr| {
             for (arr.items) |v| {
+                try std.io.getStdOut().writer().print("\n", .{});
                 try std.io.getStdOut().writer().writeByteNTimes(' ', indent);
                 try std.io.getStdOut().writer().print("- ", .{});
                 try dump(v, indent + 2);
-                try std.io.getStdOut().writer().print("\n", .{});
             }
         },
         .Object => |obj| {
             var it = obj.iterator();
             while (it.next()) |kv| {
+                try std.io.getStdOut().writer().print("\n", .{});
                 try std.io.getStdOut().writer().writeByteNTimes(' ', indent);
                 try std.io.getStdOut().writer().print("\"{}\": ", .{kv.key});
                 try dump(kv.value, indent + 2);
-                try std.io.getStdOut().writer().print("\n", .{});
             }
         },
     }
