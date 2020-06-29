@@ -44,7 +44,7 @@ test "parse object into ValueTree" {
 ```
 
 
-See the tests for more details, e.g about errors.
+See the tests for more details, e.g about errors: `zig test src/main.zig`.
 
 ### Try it out
 
