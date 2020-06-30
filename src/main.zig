@@ -629,6 +629,10 @@ test "parse into empty struct" {
 
 test "parse into optional" {
     testing.expectEqual(try parse(?isize, testing.allocator, "i5e"), 5);
+
+    var opt: ?u16 = null;
+    opt = parse(?u16, testing.allocator, "i999999999e") catch null;
+    testing.expectEqual(opt, null);
 }
 
 test "parse number into ValueTree" {
