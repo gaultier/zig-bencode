@@ -43,7 +43,7 @@ See also the example `example.zig` and the tests for more details, e.g about err
 ### Try it out
 
 ```sh
-$ zig run bencode_to_yaml.zig --  <("d8:integersli0ei5000ei-1ee11:hello,world3:foo3:abci-99ee")
+$ zig run bencode_to_yaml.zig --  <(echo "d8:integersli0ei5000ei-1ee11:hello,world3:foo3:abci-99ee")
 
 "integers":
   - 0
