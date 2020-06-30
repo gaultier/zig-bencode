@@ -43,7 +43,7 @@ See also the example `example.zig` and the tests for more details, e.g about err
 ### Try it out
 
 ```sh
-$ zig run bencode_to_yaml.zig --  "d8:integersli0ei5000ei-1ee11:hello,world3:foo3:abci-99ee"
+$ zig run bencode_to_yaml.zig --  <("d8:integersli0ei5000ei-1ee11:hello,world3:foo3:abci-99ee")
 
 "integers":
   - 0
@@ -51,6 +51,9 @@ $ zig run bencode_to_yaml.zig --  "d8:integersli0ei5000ei-1ee11:hello,world3:foo
   - -1
 "hello,world": "foo"
 "abc": -99
+
+$ zig run bencode_to_yaml.zig -- ~/Downloads/debian-10.4.0-amd64-netinst.iso.torrent
+<Output too big>
 ```
 
 ### Deviations from the standard

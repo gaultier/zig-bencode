@@ -36,7 +36,12 @@ pub fn main() anyerror!void {
     var args = try std.process.argsAlloc(allocator);
     const arg = if (args.len == 2) args[1] else return error.MissingCliArgument;
 
-    var value = try bencode.ValueTree.parse(arg, allocator);
+    var file = try std.fs.cwd().openFile(arg, std.fs.File.OpenFlags{ .read = true });
+    defer file.close();
+
+    const content = try file.readAllAlloc(allocator, (try file.stat()).size, std.math.maxInt(usize));
+
+    var value = try bencode.ValueTree.parse(content, allocator);
     defer {
         value.deinit();
     }
