@@ -757,3 +757,10 @@ test "stringify tagged unions" {
         Bar: []const u8,
     }{ .Foo = 42 });
 }
+
+test "stringify struct with void field" {
+    try teststringify("d3:fooi42ee", struct {
+        foo: u32,
+        bar: void = {},
+    }{ .foo = 42 });
+}
