@@ -764,3 +764,14 @@ test "stringify struct with void field" {
         bar: void = {},
     }{ .foo = 42 });
 }
+
+test "stringify array of structs" {
+    const MyStruct = struct {
+        foo: u32,
+    };
+    try teststringify("ld3:fooi42eed3:fooi100eed3:fooi1000eee", [_]MyStruct{
+        MyStruct{ .foo = 42 },
+        MyStruct{ .foo = 100 },
+        MyStruct{ .foo = 1000 },
+    });
+}
