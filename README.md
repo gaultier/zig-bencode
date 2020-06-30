@@ -53,13 +53,11 @@ $ zig run bencode_to_yaml.zig --  "d8:integersli0ei5000ei-1ee11:hello,world3:foo
 "abc": -99
 ```
 
-### Deviatiosn from the standard
+### Deviations from the standard
 
 - No check that dictionary keys are ordered (last one wins in case of duplicates)
 
 ## Encode (stringify)
-
-*TODO*
 
 ```zig
 const Person = struct {
