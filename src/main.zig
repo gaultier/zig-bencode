@@ -739,4 +739,6 @@ test "stringify number" {
     try teststringify("i9e", 9);
     try teststringify("i-345e", -345);
     try teststringify("3:foo", "foo");
+    try teststringify("6:abcdef", "abcdef");
+    try teststringify("0:", "");
 }
