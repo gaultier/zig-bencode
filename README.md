@@ -12,40 +12,33 @@ and we get a tagged union as a result.
 Static API:
 
 ```zig
-test "parse into struct" {
-    const TestValue = struct {
-        n: i16,
-        integers: [3]i16,
-    };
+const Person = struct {
+    age: usize,
+    name: []const u8,
+};
+const person = try bencode.parse(Person, allocator, "d3:agei18e4:name3:joee");
+defer bencode.parseFree(Person, person, allocator);
 
-    const value = try parse(TestValue, testing.allocator, "d8:integersli0ei5000ei-1ee1:ni9ee");
-    defer {
-        parseFree(TestValue, value, testing.allocator);
-    }
-
-    testing.expectEqual(value.n, 9);
-    testing.expectEqual(value.integers[0], 0);
-    testing.expectEqual(value.integers[1], 5_000);
-    testing.expectEqual(value.integers[2], -1);
-}
+// `person` is now: Person{ .age = 18, .name = "joe" };
 ```
 
 Dynamic API:
 
 ```zig
-test "parse object into ValueTree" {
-    var value_tree = try ValueTree.parse("d6:abcdef3:abc2:foi5ee", testing.allocator);
-    defer {
-        value_tree.deinit();
-    }
-
-    testing.expectEqualSlices(u8, value_tree.root.Object.get("abcdef").?.value.String, "abc");
-    testing.expectEqual(value_tree.root.Object.get("fo").?.value.Integer, 5);
+var v = try bencode.ValueTree.parse("d3:agei18e4:name3:joee", allocator);
+defer {
+    v.deinit();
 }
+
+std.debug.warn("age={} name={}", .{
+    v.root.Object.getValue("age").?.Integer,
+    v.root.Object.getValue("name").?.String,
+});
+
 ```
 
 
-See the tests for more details, e.g about errors: `zig test src/main.zig`.
+See also the example `example.zig` and the tests for more details, e.g about errors: `zig test src/main.zig`.
 
 ### Try it out
 
@@ -67,4 +60,14 @@ $ zig run bencode_to_yaml.zig --  "d8:integersli0ei5000ei-1ee11:hello,world3:foo
 ## Encode (stringify)
 
 *TODO*
+
+```zig
+const Person = struct {
+    age: usize,
+    name: []const u8,
+};
+const person = Person{ .age = 18, .name = "joe" };
+try bencode.stringify(person, std.io.getStdOut().writer());
+// Output: d3:agei18e4:name3:joee
+```
 
