@@ -775,3 +775,7 @@ test "stringify array of structs" {
         MyStruct{ .foo = 1000 },
     });
 }
+
+test "stringify vector" {
+    try teststringify("li1ei1ee", @splat(2, @as(u32, 1)));
+}
