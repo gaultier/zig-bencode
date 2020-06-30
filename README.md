@@ -72,3 +72,5 @@ try bencode.stringify(person, std.io.getStdOut().writer());
 // Output: d3:agei18e4:name3:joee
 ```
 
+## License
+BSD-3
