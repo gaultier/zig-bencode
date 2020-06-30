@@ -748,7 +748,5 @@ test "stringify arrays" {
 }
 
 test "dictionaries" {
-    const Person = struct { age: usize, name: []const u8 };
-
-    try teststringify("d3:agei18e4:name3:joee", Person{ .age = 18, .name = "joe" });
+    try teststringify("d3:agei18e4:name3:joee", struct { age: usize, name: []const u8 }{ .age = 18, .name = "joe" });
 }
