@@ -747,6 +747,13 @@ test "stringify arrays" {
     try teststringify("l4:abcde", [_][]const u8{"abcd"});
 }
 
-test "dictionaries" {
+test "stringify struct" {
     try teststringify("d3:agei18e4:name3:joee", struct { age: usize, name: []const u8 }{ .age = 18, .name = "joe" });
+}
+
+test "stringify tagged unions" {
+    try teststringify("i42e", union(enum) {
+        Foo: u32,
+        Bar: []const u8,
+    }{ .Foo = 42 });
 }
