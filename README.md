@@ -34,7 +34,7 @@ std.debug.warn("age={} name={}", .{
     v.root.Object.getValue("age").?.Integer,
     v.root.Object.getValue("name").?.String,
 });
-
+// Output: age=18 name=joe
 ```
 
 
