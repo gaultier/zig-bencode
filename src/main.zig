@@ -357,18 +357,11 @@ pub fn stringify(value: var, out_stream: var) @TypeOf(out_stream).Error!void {
             }
 
             try out_stream.writeByte('d');
-            comptime var field_output = false;
             inline for (S.fields) |Field, field_i| {
                 // don't include void fields
                 if (Field.field_type == void) continue;
 
-                if (!field_output) {
-                    field_output = true;
-                } else {
-                    try out_stream.writeByte(',');
-                }
                 try stringify(Field.name, out_stream);
-                try out_stream.writeByte(':');
                 try stringify(@field(value, Field.name), out_stream);
             }
             try out_stream.writeByte('e');
@@ -735,20 +728,27 @@ fn teststringify(expected: []const u8, value: var) !void {
 }
 
 test "stringify number" {
-    // Numbers
     try teststringify("i0e", 0);
     try teststringify("i9e", 9);
     try teststringify("i-345e", -345);
+}
 
-    // Bytes
+test "stringify bytes" {
     try teststringify("3:foo", "foo");
     try teststringify("6:abcdef", "abcdef");
     try teststringify("0:", "");
     try teststringify("0:", [_]u8{});
     try teststringify("2:ab", [_]u8{ 'a', 'b' });
+}
 
-    // Arrays
+test "stringify arrays" {
     try teststringify("le", [_]isize{});
     try teststringify("li0ei5ee", [_]isize{ 0, 5 });
     try teststringify("l4:abcde", [_][]const u8{"abcd"});
+}
+
+test "dictionaries" {
+    const Person = struct { age: usize, name: []const u8 };
+
+    try teststringify("d3:agei18e4:name3:joee", Person{ .age = 18, .name = "joe" });
 }
