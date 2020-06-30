@@ -51,6 +51,7 @@ pub const ValueTree = struct {
 pub const ObjectMap = std.StringHashMap(Value);
 pub const Array = std.ArrayList(Value);
 
+/// Represents a bencode value
 pub const Value = union(enum) {
     Integer: isize,
     String: []const u8,
@@ -151,6 +152,8 @@ pub fn parse(comptime T: type, allocator: *std.mem.Allocator, s: []const u8) any
     return parseInternal(T, allocator, &s[0..]);
 }
 
+/// Releases resources created by `parse`.
+/// Should be called with the same type that were passed to `parse`
 pub fn parseFree(comptime T: type, value: T, allocator: *std.mem.Allocator) void {
     switch (@typeInfo(T)) {
         .Int, .ComptimeInt, .Enum => {},
