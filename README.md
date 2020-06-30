@@ -58,7 +58,7 @@ $ zig run bencode_to_yaml.zig -- ~/Downloads/debian-10.4.0-amd64-netinst.iso.tor
 
 ### Deviations from the standard
 
-- No check that dictionary keys are ordered (last one wins in case of duplicates)
+- No check that dictionary keys are ordered and unique (last one wins in case of duplicates)
 
 ## Encode (stringify)
 
