@@ -327,6 +327,92 @@ fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8
     }
 }
 
+pub fn stringify(value: var, out_stream: var) @TypeOf(out_stream).Error!void {
+    const T = @TypeOf(value);
+    switch (@typeInfo(T)) {
+        .Int, .ComptimeInt => {
+            try out_stream.writeByte('i');
+            try std.fmt.formatIntValue(value, "", std.fmt.FormatOptions{}, out_stream);
+            try out_stream.writeByte('e');
+        },
+        .Union => {
+            if (comptime std.meta.trait.hasFn("bencodeStringify")(T)) {
+                return value.bencodeStringify(out_stream);
+            }
+
+            const info = @typeInfo(T).Union;
+            if (info.tag_type) |UnionTagType| {
+                inline for (info.fields) |u_field| {
+                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
+                        return try stringify(@field(value, u_field.name), out_stream);
+                    }
+                }
+            } else {
+                @compileError("Unable to stringify untagged union '" ++ @typeName(T) ++ "'");
+            }
+        },
+        .Struct => |S| {
+            if (comptime std.meta.trait.hasFn("bencodeStringify")(T)) {
+                return value.bencodeStringify(out_stream);
+            }
+
+            try out_stream.writeByte('d');
+            comptime var field_output = false;
+            inline for (S.fields) |Field, field_i| {
+                // don't include void fields
+                if (Field.field_type == void) continue;
+
+                if (!field_output) {
+                    field_output = true;
+                } else {
+                    try out_stream.writeByte(',');
+                }
+                try stringify(Field.name, out_stream);
+                try out_stream.writeByte(':');
+                try stringify(@field(value, Field.name), out_stream);
+            }
+            try out_stream.writeByte('e');
+            return;
+        },
+        .ErrorSet => return stringify(@as([]const u8, @errorName(value)), out_stream),
+        .Pointer => |ptr_info| switch (ptr_info.size) {
+            .One => switch (@typeInfo(ptr_info.child)) {
+                .Array => {
+                    const Slice = []const std.meta.Elem(ptr_info.child);
+                    return stringify(@as(Slice, value), out_stream);
+                },
+                else => {
+                    // TODO: avoid loops?
+                    return stringify(value.*, out_stream);
+                },
+            },
+            // TODO: .Many when there is a sentinel (waiting for https://github.com/ziglang/zig/pull/3972)
+            .Slice => {
+                if (ptr_info.child == u8) {
+                    try std.fmt.formatIntValue(value.len, "", std.fmt.FormatOptions{}, out_stream);
+                    try out_stream.writeByte(':');
+                    try out_stream.writeAll(value[0..]);
+                    return;
+                }
+
+                try out_stream.writeByte('l');
+                for (value) |x, i| {
+                    try stringify(x, out_stream);
+                }
+                try out_stream.writeByte('e');
+                return;
+            },
+            else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
+        },
+        .Array => return stringify(&value, out_stream),
+        .Vector => |info| {
+            const array: [info.len]info.child = value;
+            return stringify(&array, out_stream);
+        },
+        else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
+    }
+}
+
 test "parse into number" {
     testing.expectEqual((try parse(u8, testing.allocator, "i20e")), 20);
 }
@@ -590,4 +676,67 @@ test "parse object into ValueTree" {
 
     testing.expectEqualSlices(u8, value_tree.root.Object.get("abcdef").?.value.String, "abc");
     testing.expectEqual(value_tree.root.Object.get("fo").?.value.Integer, 5);
+}
+
+fn teststringify(expected: []const u8, value: var) !void {
+    const ValidationOutStream = struct {
+        const Self = @This();
+        pub const OutStream = std.io.OutStream(*Self, Error, write);
+        pub const Error = error{
+            TooMuchData,
+            DifferentData,
+        };
+
+        expected_remaining: []const u8,
+
+        fn init(exp: []const u8) Self {
+            return .{ .expected_remaining = exp };
+        }
+
+        pub fn outStream(self: *Self) OutStream {
+            return .{ .context = self };
+        }
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            if (self.expected_remaining.len < bytes.len) {
+                std.debug.warn(
+                    \\====== expected this output: =========
+                    \\{}
+                    \\======== instead found this: =========
+                    \\{}
+                    \\======================================
+                , .{
+                    self.expected_remaining,
+                    bytes,
+                });
+                return error.TooMuchData;
+            }
+            if (!std.mem.eql(u8, self.expected_remaining[0..bytes.len], bytes)) {
+                std.debug.warn(
+                    \\====== expected this output: =========
+                    \\{}
+                    \\======== instead found this: =========
+                    \\{}
+                    \\======================================
+                , .{
+                    self.expected_remaining[0..bytes.len],
+                    bytes,
+                });
+                return error.DifferentData;
+            }
+            self.expected_remaining = self.expected_remaining[bytes.len..];
+            return bytes.len;
+        }
+    };
+
+    var vos = ValidationOutStream.init(expected);
+    try stringify(value, vos.outStream());
+    if (vos.expected_remaining.len > 0) return error.NotEnoughData;
+}
+
+test "stringify number" {
+    try teststringify("i0e", 0);
+    try teststringify("i9e", 9);
+    try teststringify("i-345e", -345);
+    try teststringify("3:foo", "foo");
 }
