@@ -738,7 +738,12 @@ test "stringify number" {
     try teststringify("i0e", 0);
     try teststringify("i9e", 9);
     try teststringify("i-345e", -345);
+
     try teststringify("3:foo", "foo");
     try teststringify("6:abcdef", "abcdef");
     try teststringify("0:", "");
+    try teststringify("0:", [_]u8{});
+    try teststringify("2:ab", [_]u8{ 'a', 'b' });
+
+    try teststringify("le", [_]isize{});
 }
