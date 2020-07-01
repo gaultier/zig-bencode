@@ -359,12 +359,13 @@ fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8) anyerror!vo
                     if (s.*[0..end_index].len == 0) return error.MissingLengthBytes;
 
                     const n = try std.fmt.parseInt(usize, s.*[0..end_index], 10);
+                    if (arrayInfo.len != n) return error.InvalidByteLength;
+
                     s.* = s.*[end_index..];
                     try expectChar(s, ':');
 
-                    if (s.*.len != n) return error.InvalidByteLength;
-
                     const bytes: []const u8 = s.*[0..n];
+
                     std.mem.copy(u8, value, bytes);
 
                     s.* = s.*[n..];
@@ -912,7 +913,23 @@ test "stringify vector" {
 }
 
 test "parse no alloc into bytes" {
-    var bytes = [4]u8{ 0, 0, 0, 0 };
+    var bytes: [4]u8 = undefined;
     try parseNoAlloc([4]u8, &bytes, "4:abcd");
     testing.expectEqualSlices(u8, bytes[0..], "abcd");
+}
+
+test "parse no alloc into bytes of size too small" {
+    var bytes: [3]u8 = undefined;
+    testing.expectError(error.InvalidByteLength, parseNoAlloc([3]u8, &bytes, "4:abcd"));
+}
+
+test "parse no alloc into array of numbers " {
+    var arr: [3]i16 = undefined;
+    try parseNoAlloc([3]i16, &arr, "li1ei99ei-99ee");
+    testing.expectEqualSlices(i16, arr[0..], &[_]i16{ 1, 99, -99 });
+}
+
+test "parse no alloc into array of numbers of size too small" {
+    var arr: [2]i16 = undefined;
+    testing.expectError(error.UnexpectedChar, parseNoAlloc([2]i16, &arr, "li1ei99ei-99ee"));
 }
