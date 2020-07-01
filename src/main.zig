@@ -215,8 +215,9 @@ fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8
                 var r: T = undefined;
 
                 errdefer {
-                    for (r) |value| {
-                        parseFree(arrayInfo.child, value, allocator);
+                    var j: usize = 0;
+                    while (j < i) : (j += 1) {
+                        parseFree(arrayInfo.child, r[j], allocator);
                     }
                 }
 
@@ -224,6 +225,7 @@ fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8
                     r[i] = try parseInternal(arrayInfo.child, allocator, s);
                 }
                 try expectChar(s, 'e');
+
                 return r;
             } else {
                 if (arrayInfo.child != u8) return error.UnexpectedToken;
@@ -688,6 +690,14 @@ test "parse into array" {
     testing.expectEqual(value.len, 2);
     testing.expectEqualSlices(u8, value[0], "foo");
     testing.expectEqualSlices(u8, value[1], "hello");
+}
+
+test "parse into array too small" {
+    testing.expectError(error.UnexpectedChar, parse([1][]const u8, testing.allocator, "l3:foo5:helloe"));
+}
+
+test "parse into array too big" {
+    testing.expectError(error.MissingSeparatingStringToken, parse([3][]const u8, testing.allocator, "l3:foo5:helloe"));
 }
 
 test "parse bytes into array" {
