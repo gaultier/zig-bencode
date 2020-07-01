@@ -18,7 +18,7 @@ pub const ValueTree = struct {
     }
 
     fn parseInternal(input: *[]const u8, allocator: *std.mem.Allocator, rec_count: usize) anyerror!Value {
-        if (rec_count == 100) return error.MaxDepthReached;
+        if (rec_count == 100) return error.RecursionLimitReached;
 
         if (peek(input.*)) |c| {
             return switch (c) {
@@ -827,6 +827,10 @@ test "parse object into ValueTree" {
 
     testing.expectEqualSlices(u8, value_tree.root.Object.get("abcdef").?.value.String, "abc");
     testing.expectEqual(value_tree.root.Object.get("fo").?.value.Integer, 5);
+}
+
+test "parse ValueTree and reach recursion limit" {
+    testing.expectError(error.RecursionLimitReached, ValueTree.parse("l" ** 101 ++ "e" ** 101, testing.allocator));
 }
 
 fn teststringify(expected: []const u8, value: var) !void {
