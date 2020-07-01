@@ -595,6 +595,10 @@ test "parse into unicode bytes" {
 test "parse into bytes with invalid size" {
     testing.expectError(error.InvalidByteLength, parse([]u8, testing.allocator, "10:foo"));
     testing.expectError(error.InvalidByteLength, parse([]u8, testing.allocator, "10:"));
+    // No way to detect this case I think since there is no terminating token
+    var value = try parse([]u8, testing.allocator, "3:abcd");
+    defer parseFree([]u8, value, testing.allocator);
+    testing.expectEqualSlices(u8, value, "abc");
 }
 
 test "parse empty string into bytes" {
