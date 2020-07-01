@@ -12,12 +12,14 @@ pub const ValueTree = struct {
     pub fn parse(input: []const u8, allocator: *std.mem.Allocator) !ValueTree {
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
-        const value = try parseInternal(&input[0..], &arena.allocator);
+        const value = try parseInternal(&input[0..], &arena.allocator, 0);
 
         return ValueTree{ .arena = arena, .root = value };
     }
 
-    fn parseInternal(input: *[]const u8, allocator: *std.mem.Allocator) anyerror!Value {
+    fn parseInternal(input: *[]const u8, allocator: *std.mem.Allocator, rec_count: usize) anyerror!Value {
+        if (rec_count == 100) return error.MaxDepthReached;
+
         if (peek(input.*)) |c| {
             return switch (c) {
                 'i' => Value{ .Integer = try parseNumber(isize, input) },
@@ -28,7 +30,7 @@ pub const ValueTree = struct {
 
                     try expectChar(input, 'l');
                     while (!match(input, 'e')) {
-                        const v = try parseInternal(input, allocator);
+                        const v = try parseInternal(input, allocator, rec_count + 1);
                         try arr.append(v);
                     }
                     return Value{ .Array = arr };
@@ -40,7 +42,7 @@ pub const ValueTree = struct {
                     try expectChar(input, 'd');
                     while (!match(input, 'e')) {
                         const k = try parseBytes([]const u8, u8, allocator, input);
-                        const v = try parseInternal(input, allocator);
+                        const v = try parseInternal(input, allocator, rec_count + 1);
                         _ = try map.put(k, v);
                     }
                     return Value{ .Object = map };
