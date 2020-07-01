@@ -24,6 +24,7 @@ pub const ValueTree = struct {
                 '0'...'9' => Value{ .String = try parseBytes([]const u8, u8, allocator, input) },
                 'l' => {
                     var arr = Array.init(allocator);
+                    errdefer arr.deinit();
 
                     try expectChar(input, 'l');
                     while (!match(input, 'e')) {
@@ -34,6 +35,8 @@ pub const ValueTree = struct {
                 },
                 'd' => {
                     var map = ObjectMap.init(allocator);
+                    errdefer map.deinit();
+
                     try expectChar(input, 'd');
                     while (!match(input, 'e')) {
                         const k = try parseBytes([]const u8, u8, allocator, input);
