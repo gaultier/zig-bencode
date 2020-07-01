@@ -330,6 +330,130 @@ fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8
     }
 }
 
+pub fn parseNoAlloc(comptime T: type, value: *T, s: []const u8) anyerror!void {
+    return parseInternalNoAlloc(T, value, &s[0..]);
+}
+
+fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8) anyerror!void {
+    switch (@typeInfo(T)) {
+        .Int, .ComptimeInt => {
+            value.* = try parseNumber(T, s);
+        },
+        .Optional => |optionalInfo| {
+            value.* = try parseNumber(optionalInfo.child, s);
+        },
+        .Array => |arrayInfo| {
+            if (match(s, 'l')) {
+                var i: usize = 0;
+
+                while (i < value.*.len) : (i += 1) {
+                    try parseInternalNoAlloc(arrayInfo.child, &value.*[i], s);
+                }
+                try expectChar(s, 'e');
+                return;
+            } else {
+                if (arrayInfo.child != u8) return error.UnexpectedToken;
+
+                const optional_end_index = findFirstIndexOf(s.*[0..], ':');
+                if (optional_end_index) |end_index| {
+                    if (s.*[0..end_index].len == 0) return error.MissingLengthBytes;
+
+                    const n = try std.fmt.parseInt(usize, s.*[0..end_index], 10);
+                    s.* = s.*[end_index..];
+                    try expectChar(s, ':');
+
+                    if (s.*.len != n) return error.InvalidByteLength;
+
+                    const bytes: []const u8 = s.*[0..n];
+                    std.mem.copy(u8, value, bytes);
+
+                    s.* = s.*[n..];
+                    return;
+                } else {
+                    return error.MissingTerminatingNumberToken;
+                }
+            }
+        },
+        // .Struct => |structInfo| {
+        //     try expectChar(s, 'd');
+        //     var r: T = undefined;
+        //     var fields_seen = [_]bool{false} ** structInfo.fields.len;
+        //     errdefer {
+        //         inline for (structInfo.fields) |field, i| {
+        //             if (fields_seen[i]) {
+        //                 parseFree(field.field_type, @field(r, field.name), allocator);
+        //             }
+        //         }
+        //     }
+        //     while (!match(s, 'e')) {
+        //         const key = try parseBytes([]const u8, u8, allocator, s);
+        //         defer {
+        //             parseFree([]const u8, key, allocator);
+        //         }
+        //         var found = false;
+        //         inline for (structInfo.fields) |field, i| {
+        //             if (std.mem.eql(u8, key, field.name)) {
+        //                 found = true;
+        //                 fields_seen[i] = true;
+        //                 @field(r, field.name) = try parseInternal(field.field_type, allocator, s);
+        //                 break;
+        //             }
+        //         }
+        //         if (!found) return error.UnknownField;
+        //     }
+
+        //     inline for (structInfo.fields) |field, i| {
+        //         if (!fields_seen[i]) {
+        //             if (field.default_value) |default| {
+        //                 @field(r, field.name) = default;
+        //             } else {
+        //                 return error.MissingField;
+        //             }
+        //         }
+        //     }
+
+        //     return r;
+        // },
+        // .Union => |unionInfo| {
+        //     if (unionInfo.tag_type) |_| {
+        //         // try each of the union fields until we find one that matches
+        //         inline for (unionInfo.fields) |u_field| {
+        //             if (parseInternal(u_field.field_type, allocator, s)) |value| {
+        //                 return @unionInit(T, u_field.name, value);
+        //             } else |err| {
+        //                 // Bubble up error.OutOfMemory
+        //                 // Parsing some types won't have OutOfMemory in their
+        //                 // error-sets, for the condition to be valid, merge it in.
+        //                 if (@as(@TypeOf(err) || error{OutOfMemory}, err) == error.OutOfMemory) return err;
+        //                 // otherwise continue through the `inline for`
+        //             }
+        //         }
+        //         return error.NoUnionMembersMatched;
+        //     } else {
+        //         @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
+        //     }
+        // },
+        // .Pointer => |ptrInfo| {
+        //     switch (ptrInfo.size) {
+        //         .One => {
+        //             const r: T = try allocator.create(ptrInfo.child);
+        //             r.* = try parseInternal(ptrInfo.child, allocator, s);
+        //             return r;
+        //         },
+        //         .Slice => {
+        //             const first_char = peek(s.*);
+        //             if (first_char) |c| {
+        //                 if (c == 'l') return parseArray(T, ptrInfo.child, allocator, s);
+        //                 if (ptrInfo.child == u8) return parseBytes(T, ptrInfo.child, allocator, s);
+        //             }
+        //             return error.UnexpectedChar;
+        //         },
+        //         else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
+        //     }
+        // },
+        else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
+    }
+}
 pub fn stringify(value: var, out_stream: var) @TypeOf(out_stream).Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
@@ -785,4 +909,10 @@ test "stringify array of structs" {
 
 test "stringify vector" {
     try teststringify("li1ei1ee", @splat(2, @as(u32, 1)));
+}
+
+test "parse no alloc into bytes" {
+    var bytes = [4]u8{ 0, 0, 0, 0 };
+    try parseNoAlloc([4]u8, &bytes, "4:abcd");
+    testing.expectEqualSlices(u8, bytes[0..], "abcd");
 }
