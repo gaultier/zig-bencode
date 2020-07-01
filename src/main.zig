@@ -112,7 +112,7 @@ fn match(s: *[]const u8, needle: u8) bool {
     return false;
 }
 
-fn parseArray(comptime T: type, childType: type, allocator: *std.mem.Allocator, s: *[]const u8) anyerror!T {
+fn parseArray(comptime T: type, childType: type, allocator: *std.mem.Allocator, s: *[]const u8, rec_count: usize) anyerror!T {
     try expectChar(s, 'l');
 
     var arraylist = std.ArrayList(childType).init(allocator);
@@ -121,7 +121,7 @@ fn parseArray(comptime T: type, childType: type, allocator: *std.mem.Allocator, 
     }
 
     while (!match(s, 'e')) {
-        const item = try parseInternal(childType, allocator, s);
+        const item = try parseInternal(childType, allocator, s, rec_count + 1);
         try arraylist.append(item);
     }
 
@@ -154,7 +154,7 @@ fn parseBytes(comptime T: type, childType: type, allocator: *std.mem.Allocator, 
 }
 
 pub fn parse(comptime T: type, allocator: *std.mem.Allocator, s: []const u8) anyerror!T {
-    return parseInternal(T, allocator, &s[0..]);
+    return parseInternal(T, allocator, &s[0..], 0);
 }
 
 /// Releases resources created by `parse`.
@@ -208,11 +208,13 @@ pub fn parseFree(comptime T: type, value: T, allocator: *std.mem.Allocator) void
     }
 }
 
-fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8) anyerror!T {
+fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8, rec_count: usize) anyerror!T {
+    if (rec_count == 100) return error.RecursionLimitReached;
+
     switch (@typeInfo(T)) {
         .Int, .ComptimeInt => return parseNumber(T, s),
         .Optional => |optionalInfo| {
-            return try parseInternal(optionalInfo.child, allocator, s);
+            return try parseInternal(optionalInfo.child, allocator, s, rec_count + 1);
         },
         .Array => |arrayInfo| {
             if (match(s, 'l')) {
@@ -227,7 +229,7 @@ fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8
                 }
 
                 while (i < r.len) : (i += 1) {
-                    r[i] = try parseInternal(arrayInfo.child, allocator, s);
+                    r[i] = try parseInternal(arrayInfo.child, allocator, s, rec_count + 1);
                 }
                 try expectChar(s, 'e');
 
@@ -279,7 +281,7 @@ fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8
                     if (std.mem.eql(u8, key, field.name)) {
                         found = true;
                         fields_seen[i] = true;
-                        @field(r, field.name) = try parseInternal(field.field_type, allocator, s);
+                        @field(r, field.name) = try parseInternal(field.field_type, allocator, s, rec_count + 1);
                         break;
                     }
                 }
@@ -302,7 +304,7 @@ fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8
             if (unionInfo.tag_type) |_| {
                 // try each of the union fields until we find one that matches
                 inline for (unionInfo.fields) |u_field| {
-                    if (parseInternal(u_field.field_type, allocator, s)) |value| {
+                    if (parseInternal(u_field.field_type, allocator, s, rec_count + 1)) |value| {
                         return @unionInit(T, u_field.name, value);
                     } else |err| {
                         // Bubble up error.OutOfMemory
@@ -321,13 +323,13 @@ fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8
             switch (ptrInfo.size) {
                 .One => {
                     const r: T = try allocator.create(ptrInfo.child);
-                    r.* = try parseInternal(ptrInfo.child, allocator, s);
+                    r.* = try parseInternal(ptrInfo.child, allocator, s, rec_count + 1);
                     return r;
                 },
                 .Slice => {
                     const first_char = peek(s.*);
                     if (first_char) |c| {
-                        if (c == 'l') return parseArray(T, ptrInfo.child, allocator, s);
+                        if (c == 'l') return parseArray(T, ptrInfo.child, allocator, s, rec_count);
                         if (ptrInfo.child == u8) return parseBytes(T, ptrInfo.child, allocator, s);
                     }
                     return error.UnexpectedChar;
@@ -340,10 +342,12 @@ fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8
 }
 
 pub fn parseNoAlloc(comptime T: type, value: *T, s: []const u8) anyerror!void {
-    return parseInternalNoAlloc(T, value, &s[0..]);
+    return parseInternalNoAlloc(T, value, &s[0..], 0);
 }
 
-fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8) anyerror!void {
+fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8, rec_count: usize) anyerror!void {
+    if (rec_count == 100) return error.RecursionLimitReached;
+
     switch (@typeInfo(T)) {
         .Int, .ComptimeInt => {
             value.* = try parseNumber(T, s);
@@ -356,7 +360,7 @@ fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8) anyerror!vo
                 var i: usize = 0;
 
                 while (i < value.*.len) : (i += 1) {
-                    try parseInternalNoAlloc(arrayInfo.child, &value.*[i], s);
+                    try parseInternalNoAlloc(arrayInfo.child, &value.*[i], s, rec_count + 1);
                 }
                 try expectChar(s, 'e');
                 return;
@@ -443,24 +447,31 @@ fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8) anyerror!vo
         //         @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
         //     }
         // },
-        // .Pointer => |ptrInfo| {
-        //     switch (ptrInfo.size) {
-        //         .One => {
-        //             const r: T = try allocator.create(ptrInfo.child);
-        //             r.* = try parseInternal(ptrInfo.child, allocator, s);
-        //             return r;
-        //         },
-        //         .Slice => {
-        //             const first_char = peek(s.*);
-        //             if (first_char) |c| {
-        //                 if (c == 'l') return parseArray(T, ptrInfo.child, allocator, s);
-        //                 if (ptrInfo.child == u8) return parseBytes(T, ptrInfo.child, allocator, s);
-        //             }
-        //             return error.UnexpectedChar;
-        //         },
-        //         else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
-        //     }
-        // },
+        .Pointer => |ptrInfo| {
+            switch (ptrInfo.size) {
+                .One => {
+                    value.* = try parseInternalNoAlloc(ptrInfo.child, s, rec_count + 1);
+                    return;
+                },
+                .Slice => {
+                    const first_char = peek(s.*);
+                    if (first_char) |c| {
+                        if (match(s, 'l')) {
+                            var i: usize = 0;
+                            while (i < value.*.len) : (i += 1) {
+                                try parseInternalNoAlloc(ptrInfo.child, &value.*[i], s, rec_count + 1);
+                            }
+                            try expectChar(s, 'e');
+                            return;
+                        }
+                        if (ptrInfo.child == u8) {
+                            @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'");
+                        }
+                    }
+                },
+                else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
+            }
+        },
         else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
     }
 }
@@ -786,6 +797,10 @@ test "parse into optional" {
     testing.expectEqual(opt, null);
 }
 
+test "parse into array and reach recursion limit" {
+    testing.expectError(error.RecursionLimitReached, parse([][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]usize, testing.allocator, "l" ** 101 ++ "e" ** 101));
+}
+
 test "parse number into ValueTree" {
     const value_tree = try ValueTree.parse("i-1e", testing.allocator);
     testing.expectEqual(value_tree.root.Integer, -1);
@@ -970,4 +985,10 @@ test "parse no alloc into array of numbers of size too small" {
 
 test "parse no alloc into array of numbers of size too big" {
     // TODO
+}
+
+test "parse no alloc into array and reach recursion limit" {
+    var value: [1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1]usize = undefined;
+
+    testing.expectError(error.RecursionLimitReached, parseNoAlloc([1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1]usize, &value, "l" ** 111 ++ "e" ** 111));
 }
