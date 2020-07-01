@@ -923,6 +923,10 @@ test "parse no alloc into bytes of size too small" {
     testing.expectError(error.InvalidByteLength, parseNoAlloc([3]u8, &bytes, "4:abcd"));
 }
 
+test "parse no alloc into bytes of size too big" {
+    // TODO
+}
+
 test "parse no alloc into array of numbers " {
     var arr: [3]i16 = undefined;
     try parseNoAlloc([3]i16, &arr, "li1ei99ei-99ee");
@@ -932,4 +936,8 @@ test "parse no alloc into array of numbers " {
 test "parse no alloc into array of numbers of size too small" {
     var arr: [2]i16 = undefined;
     testing.expectError(error.UnexpectedChar, parseNoAlloc([2]i16, &arr, "li1ei99ei-99ee"));
+}
+
+test "parse no alloc into array of numbers of size too big" {
+    // TODO
 }
