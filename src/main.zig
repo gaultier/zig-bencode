@@ -239,6 +239,8 @@ fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8
                     if (s.*[0..end_index].len == 0) return error.MissingLengthBytes;
 
                     const n = try std.fmt.parseInt(usize, s.*[0..end_index], 10);
+                    if (n >= s.len) return error.InvalidByteLength;
+
                     s.* = s.*[end_index..];
                     try expectChar(s, ':');
 
@@ -600,6 +602,7 @@ test "parse into unicode bytes" {
 test "parse into bytes with invalid size" {
     testing.expectError(error.InvalidByteLength, parse([]u8, testing.allocator, "10:foo"));
     testing.expectError(error.InvalidByteLength, parse([]u8, testing.allocator, "10:"));
+    testing.expectError(error.MissingSeparatingStringToken, parse([]u8, testing.allocator, "10"));
     // No way to detect this case I think since there is no terminating token
     var value = try parse([]u8, testing.allocator, "3:abcd");
     defer parseFree([]u8, value, testing.allocator);
@@ -693,6 +696,10 @@ test "parse into array" {
     testing.expectEqual(value.len, 2);
     testing.expectEqualSlices(u8, value[0], "foo");
     testing.expectEqualSlices(u8, value[1], "hello");
+}
+
+test "parse array into bytes with invalid size" {
+    testing.expectError(error.InvalidByteLength, parse([3]u8, testing.allocator, "10:"));
 }
 
 test "parse into array too small" {
