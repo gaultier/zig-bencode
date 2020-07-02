@@ -377,9 +377,7 @@ fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8, rec_count: 
                     s.* = s.*[end_index..];
                     try expectChar(s, ':');
 
-                    const bytes: []const u8 = s.*[0..n];
-
-                    std.mem.copy(u8, value, bytes);
+                    std.mem.copy(u8, value, s.*[0..n]);
 
                     s.* = s.*[n..];
                     return;
@@ -984,7 +982,8 @@ test "parse no alloc into array of numbers of size too small" {
 }
 
 test "parse no alloc into array of numbers of size too big" {
-    // TODO
+    var arr: [5]i16 = undefined;
+    testing.expectError(error.UnexpectedChar, parseNoAlloc([5]i16, &arr, "li1ei99ei-99ee"));
 }
 
 test "parse no alloc into array and reach recursion limit" {
