@@ -1022,3 +1022,16 @@ test "parse no alloc into struct with array" {
     testing.expectEqual(value.integers[1], 5_000);
     testing.expectEqual(value.integers[2], -1);
 }
+
+test "parse no alloc into struct with default value" {
+    const TestValue = struct {
+        n: i16,
+        x: usize = 5,
+    };
+
+    var value: TestValue = undefined;
+    try parseNoAlloc(TestValue, &value, "d1:ni9ee");
+
+    testing.expectEqual(value.n, 9);
+    testing.expectEqual(value.x, 5);
+}
