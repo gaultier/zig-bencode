@@ -967,7 +967,8 @@ test "parse no alloc into bytes of size too small" {
 }
 
 test "parse no alloc into bytes of size too big" {
-    // TODO
+    var bytes: [5]u8 = undefined;
+    testing.expectError(error.InvalidByteLength, parseNoAlloc([5]u8, &bytes, "4:abcd"));
 }
 
 test "parse no alloc into array of numbers " {
