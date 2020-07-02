@@ -345,6 +345,26 @@ pub fn parseNoAlloc(comptime T: type, value: *T, s: []const u8) anyerror!void {
     return parseInternalNoAlloc(T, value, &s[0..], 0);
 }
 
+fn parseBytesNoAlloc(comptime T: type, value: *T, s: *[]const u8) anyerror!void {
+    const optional_end_index = findFirstIndexOf(s.*[0..], ':');
+    if (optional_end_index) |end_index| {
+        if (s.*[0..end_index].len == 0) return error.MissingLengthBytes;
+
+        const n = try std.fmt.parseInt(usize, s.*[0..end_index], 10);
+        if (value.*.len != n) return error.InvalidByteLength;
+
+        s.* = s.*[end_index..];
+        try expectChar(s, ':');
+
+        std.mem.copy(u8, value, s.*[0..n]);
+
+        s.* = s.*[n..];
+        return;
+    } else {
+        return error.MissingTerminatingNumberToken;
+    }
+}
+
 fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8, rec_count: usize) anyerror!void {
     if (rec_count == 100) return error.RecursionLimitReached;
 
@@ -366,24 +386,7 @@ fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8, rec_count: 
                 return;
             } else {
                 if (arrayInfo.child != u8) return error.UnexpectedToken;
-
-                const optional_end_index = findFirstIndexOf(s.*[0..], ':');
-                if (optional_end_index) |end_index| {
-                    if (s.*[0..end_index].len == 0) return error.MissingLengthBytes;
-
-                    const n = try std.fmt.parseInt(usize, s.*[0..end_index], 10);
-                    if (arrayInfo.len != n) return error.InvalidByteLength;
-
-                    s.* = s.*[end_index..];
-                    try expectChar(s, ':');
-
-                    std.mem.copy(u8, value, s.*[0..n]);
-
-                    s.* = s.*[n..];
-                    return;
-                } else {
-                    return error.MissingTerminatingNumberToken;
-                }
+                try parseBytesNoAlloc(T, value, s);
             }
         },
         // .Struct => |structInfo| {
