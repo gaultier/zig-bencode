@@ -466,7 +466,8 @@ fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8, rec_count: 
                             return;
                         }
                         if (ptrInfo.child == u8) {
-                            @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'");
+                            try parseBytesNoAlloc(ptrInfo.child, value, s);
+                            return;
                         }
                     }
                 },
