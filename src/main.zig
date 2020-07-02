@@ -389,46 +389,44 @@ fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8, rec_count: 
                 try parseBytesNoAlloc(T, value, s);
             }
         },
-        // .Struct => |structInfo| {
-        //     try expectChar(s, 'd');
-        //     var r: T = undefined;
-        //     var fields_seen = [_]bool{false} ** structInfo.fields.len;
-        //     errdefer {
-        //         inline for (structInfo.fields) |field, i| {
-        //             if (fields_seen[i]) {
-        //                 parseFree(field.field_type, @field(r, field.name), allocator);
-        //             }
-        //         }
-        //     }
-        //     while (!match(s, 'e')) {
-        //         const key = try parseBytes([]const u8, u8, allocator, s);
-        //         defer {
-        //             parseFree([]const u8, key, allocator);
-        //         }
-        //         var found = false;
-        //         inline for (structInfo.fields) |field, i| {
-        //             if (std.mem.eql(u8, key, field.name)) {
-        //                 found = true;
-        //                 fields_seen[i] = true;
-        //                 @field(r, field.name) = try parseInternal(field.field_type, allocator, s);
-        //                 break;
-        //             }
-        //         }
-        //         if (!found) return error.UnknownField;
-        //     }
+        .Struct => |structInfo| {
+            try expectChar(s, 'd');
+            var fields_seen = [_]bool{false} ** structInfo.fields.len;
 
-        //     inline for (structInfo.fields) |field, i| {
-        //         if (!fields_seen[i]) {
-        //             if (field.default_value) |default| {
-        //                 @field(r, field.name) = default;
-        //             } else {
-        //                 return error.MissingField;
-        //             }
-        //         }
-        //     }
+            while (!match(s, 'e')) {
+                var found = false;
+                inline for (structInfo.fields) |field, i| {
+                    if (!fields_seen[i]) {
+                        var key: [field.name.len]u8 = undefined;
+                        const cpy = s.*;
 
-        //     return r;
-        // },
+                        try parseBytesNoAlloc([field.name.len]u8, &key, s);
+
+                        if (std.mem.eql(u8, key[0..], field.name)) {
+                            found = true;
+                            fields_seen[i] = true;
+                            try parseInternalNoAlloc(field.field_type, &@field(value, field.name), s, rec_count + 1);
+                            break;
+                        } else {
+                            s.* = cpy;
+                        }
+                    }
+                }
+                if (!found) return error.UnknownField;
+            }
+
+            inline for (structInfo.fields) |field, i| {
+                if (!fields_seen[i]) {
+                    if (field.default_value) |default| {
+                        @field(value, field.name) = default;
+                    } else {
+                        return error.MissingField;
+                    }
+                }
+            }
+
+            return;
+        },
         // .Union => |unionInfo| {
         //     if (unionInfo.tag_type) |_| {
         //         // try each of the union fields until we find one that matches
@@ -995,4 +993,32 @@ test "parse no alloc into array and reach recursion limit" {
     var value: [1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1]usize = undefined;
 
     testing.expectError(error.RecursionLimitReached, parseNoAlloc([1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1]usize, &value, "l" ** 111 ++ "e" ** 111));
+}
+
+test "parse no alloc into struct" {
+    const TestValue = struct {
+        n: i16,
+        x: usize,
+    };
+
+    var value: TestValue = undefined;
+    try parseNoAlloc(TestValue, &value, "d1:ni9e1:xi99ee");
+
+    testing.expectEqual(value.n, 9);
+    testing.expectEqual(value.x, 99);
+}
+
+test "parse no alloc into struct with array" {
+    const TestValue = struct {
+        integers: [3]i16,
+        n: i16,
+    };
+
+    var value: TestValue = undefined;
+    try parseNoAlloc(TestValue, &value, "d8:integersli0ei5000ei-1ee1:ni9ee");
+
+    testing.expectEqual(value.n, 9);
+    testing.expectEqual(value.integers[0], 0);
+    testing.expectEqual(value.integers[1], 5_000);
+    testing.expectEqual(value.integers[2], -1);
 }
