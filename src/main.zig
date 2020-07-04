@@ -51,6 +51,10 @@ pub const ValueTree = struct {
             };
         } else return error.UnexpectedChar;
     }
+
+    pub fn stringify(self: *const Self, out_stream: var) @TypeOf(out_stream).Error!void {
+        return self.root.stringify(out_stream);
+    }
 };
 
 pub const ObjectMap = std.StringHashMap(Value);
@@ -62,6 +66,40 @@ pub const Value = union(enum) {
     String: []const u8,
     Array: Array,
     Object: ObjectMap,
+
+    pub fn stringifyValue(self: Value, out_stream: var) @TypeOf(out_stream).Error!void {
+        switch (self) {
+            .Integer => |value| {
+                try out_stream.writeByte('i');
+                try std.fmt.formatIntValue(value, "", std.fmt.FormatOptions{}, out_stream);
+                try out_stream.writeByte('e');
+            },
+            .Object => |dictionary| {
+                try out_stream.writeByte('d');
+                var it = dictionary.iterator();
+                while (it.next()) |entry| {
+                    try stringify(entry.key, out_stream);
+                    try entry.value.stringifyValue(out_stream);
+                }
+                try out_stream.writeByte('e');
+                return;
+            },
+            .String => |s| {
+                try std.fmt.formatIntValue(s.len, "", std.fmt.FormatOptions{}, out_stream);
+                try out_stream.writeByte(':');
+                try out_stream.writeAll(s[0..]);
+                return;
+            },
+            .Array => |array| {
+                try out_stream.writeByte('l');
+                for (array.items) |x, i| {
+                    try x.stringifyValue(out_stream);
+                }
+                try out_stream.writeByte('e');
+                return;
+            },
+        }
+    }
 };
 
 fn findFirstIndexOf(s: []const u8, needle: u8) ?usize {
