@@ -36,14 +36,17 @@ pub const ValueTree = struct {
                     return Value{ .Array = arr };
                 },
                 'd' => {
-                    var map = ObjectMap.init(allocator);
+                    var map = ObjectMap.init(mapCompare);
                     errdefer map.deinit();
 
                     try expectChar(input, 'd');
                     while (!match(input, 'e')) {
                         const k = try parseBytes([]const u8, u8, allocator, input);
                         const v = try parseInternal(input, allocator, rec_count + 1);
-                        _ = try map.put(k, v);
+                        var entry: Entry = undefined;
+                        entry.key = k;
+                        entry.value = value;
+                        _ = try map.insert(&entry);
                     }
                     return Value{ .Object = map };
                 },
@@ -57,7 +60,31 @@ pub const ValueTree = struct {
     }
 };
 
-pub const ObjectMap = std.StringHashMap(Value);
+pub const ObjectMap = std.rb.Tree;
+pub const Entry = struct {
+    node: std.rb.Node,
+    key: String,
+    value: Value,
+};
+
+fn mapGetEntry(node: *Node) *Entry {
+    return @fieldParentPtr(Entry, "node", node);
+}
+
+fn mapCompare(l: *Node, r: *Node, contextIgnore: *Tree) Order {
+    var left = mapGetEntry(l);
+    var right = mapGetEntry(r);
+
+    if (left.key < right.key) {
+        return .lt;
+    } else if (left.value == right.value) {
+        return .eq;
+    } else if (left.value > right.value) {
+        return .gt;
+    }
+    unreachable;
+}
+
 pub const Array = std.ArrayList(Value);
 
 /// Represents a bencode value
@@ -77,6 +104,7 @@ pub const Value = union(enum) {
             .Object => |dictionary| {
                 try out_stream.writeByte('d');
                 var it = dictionary.iterator();
+
                 while (it.next()) |entry| {
                     try stringify(entry.key, out_stream);
                     try entry.value.stringifyValue(out_stream);
