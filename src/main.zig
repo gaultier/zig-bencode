@@ -50,6 +50,11 @@ pub const ValueTree = struct {
                         if (map.insert(&entry.*.node) != null) {
                             return error.DuplicateDictionaryKeys; // EEXISTS
                         }
+
+                        const next_key = entry.*.node.next();
+                        if (next_key != null) {
+                            return error.UnorderedDictionaryKeys;
+                        }
                     }
                     return Value{ .Object = map };
                 },
@@ -903,6 +908,10 @@ test "parse array into ValueTree" {
 
 test "parse object into ValueTree with duplicate keys" {
     testing.expectError(error.DuplicateDictionaryKeys, ValueTree.parse("d1:ni9e1:ni9ee", testing.allocator));
+}
+
+test "parse object into ValueTree with unordered keys" {
+    testing.expectError(error.UnorderedDictionaryKeys, ValueTree.parse("d1:ni9e1:mi9ee", testing.allocator));
 }
 
 test "parse object into ValueTree" {
