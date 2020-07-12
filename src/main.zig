@@ -43,11 +43,13 @@ pub const ValueTree = struct {
                         const k = try parseBytes([]const u8, u8, allocator, input);
                         const v = try parseInternal(input, allocator, rec_count + 1);
                         var entry: *Entry = try allocator.create(Entry);
-                        errdefer allocator.free(entry);
+                        errdefer allocator.destroy(entry);
 
                         entry.*.key = k;
                         entry.*.value = v;
-                        _ = map.insert(&entry.*.node);
+                        if (map.insert(&entry.*.node) != null) {
+                            return error.DuplicateDictionaryKeys; // EEXISTS
+                        }
                     }
                     return Value{ .Object = map };
                 },
@@ -897,6 +899,10 @@ test "parse array into ValueTree" {
 
     testing.expectEqualSlices(u8, value_tree.root.Array.items[0].String, "abcdef");
     testing.expectEqual(value_tree.root.Array.items[1].Integer, 0);
+}
+
+test "parse object into ValueTree with duplicate keys" {
+    testing.expectError(error.DuplicateDictionaryKeys, ValueTree.parse("d1:ni9e1:ni9ee", testing.allocator));
 }
 
 test "parse object into ValueTree" {
