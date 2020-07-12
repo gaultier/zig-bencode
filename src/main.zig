@@ -37,16 +37,17 @@ pub const ValueTree = struct {
                 },
                 'd' => {
                     var map = ObjectMap.init(mapCompare);
-                    errdefer map.deinit();
 
                     try expectChar(input, 'd');
                     while (!match(input, 'e')) {
                         const k = try parseBytes([]const u8, u8, allocator, input);
                         const v = try parseInternal(input, allocator, rec_count + 1);
-                        var entry: Entry = undefined;
-                        entry.key = k;
-                        entry.value = value;
-                        _ = try map.insert(&entry);
+                        var entry: *Entry = try allocator.create(Entry);
+                        errdefer allocator.free(entry);
+
+                        entry.*.key = k;
+                        entry.*.value = v;
+                        _ = map.insert(&entry.*.node);
                     }
                     return Value{ .Object = map };
                 },
@@ -63,26 +64,19 @@ pub const ValueTree = struct {
 pub const ObjectMap = std.rb.Tree;
 pub const Entry = struct {
     node: std.rb.Node,
-    key: String,
+    key: []const u8,
     value: Value,
 };
 
-fn mapGetEntry(node: *Node) *Entry {
+fn mapGetEntry(node: *std.rb.Node) *Entry {
     return @fieldParentPtr(Entry, "node", node);
 }
 
-fn mapCompare(l: *Node, r: *Node, contextIgnore: *Tree) Order {
+fn mapCompare(l: *std.rb.Node, r: *std.rb.Node, contextIgnore: *std.rb.Tree) std.math.Order {
     var left = mapGetEntry(l);
     var right = mapGetEntry(r);
 
-    if (left.key < right.key) {
-        return .lt;
-    } else if (left.value == right.value) {
-        return .eq;
-    } else if (left.value > right.value) {
-        return .gt;
-    }
-    unreachable;
+    return std.mem.order(u8, left.key, right.key);
 }
 
 pub const Array = std.ArrayList(Value);
@@ -103,11 +97,16 @@ pub const Value = union(enum) {
             },
             .Object => |dictionary| {
                 try out_stream.writeByte('d');
-                var it = dictionary.iterator();
 
-                while (it.next()) |entry| {
+                var node = dictionary.first();
+                var entry = mapGetEntry(&node);
+
+                while (node.node.next()) |entry| {
                     try stringify(entry.key, out_stream);
                     try entry.value.stringifyValue(out_stream);
+
+                    node = node.next();
+                    entry = mapGetEntry(&node);
                 }
                 try out_stream.writeByte('e');
                 return;
@@ -906,8 +905,15 @@ test "parse object into ValueTree" {
         value_tree.deinit();
     }
 
-    testing.expectEqualSlices(u8, value_tree.root.Object.get("abcdef").?.value.String, "abc");
-    testing.expectEqual(value_tree.root.Object.get("fo").?.value.Integer, 5);
+    var entry: Entry = undefined;
+    entry.key = "abcdef";
+    var node = mapGetEntry(value_tree.root.Object.lookup(&entry.node).?);
+
+    testing.expectEqualSlices(u8, node.value.String, "abc");
+
+    entry.key = "fo";
+    node = mapGetEntry(value_tree.root.Object.lookup(&entry.node).?);
+    testing.expectEqual(node.value.Integer, 5);
 }
 
 test "parse ValueTree and reach recursion limit" {
