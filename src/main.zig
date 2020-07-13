@@ -347,17 +347,17 @@ test "parse into number without digits" {
 }
 
 test "parse into bytes" {
-    const res = (try ValueTree.parse("3:abc", testing.allocator)).root.String;
-    defer testing.allocator.free(res);
+    var value = (try ValueTree.parse("3:abc", testing.allocator)).root.String;
+    defer testing.allocator.free(value);
 
-    testing.expectEqualSlices(u8, res, "abc");
+    testing.expectEqualSlices(u8, value, "abc");
 }
 
 test "parse into unicode bytes" {
-    const res = (try ValueTree.parse("9:毛泽东", testing.allocator)).root.String;
-    defer testing.allocator.free(res);
+    var value = (try ValueTree.parse("9:毛泽东", testing.allocator)).root.String;
+    defer testing.allocator.free(value);
 
-    testing.expectEqualSlices(u8, res, "毛泽东");
+    testing.expectEqualSlices(u8, value, "毛泽东");
 }
 
 test "parse into bytes with invalid size" {
@@ -390,46 +390,46 @@ test "parse into empty array" {
 }
 
 test "parse into array of u8 numbers" {
-    const res = (try ValueTree.parse("li4ei10ee", testing.allocator)).root.Array;
-    defer testing.allocator.free(res);
+    var value = try ValueTree.parse("li4ei10ee", testing.allocator);
+    defer value.deinit();
 
-    testing.expectEqual(res.items.len, 2);
-    testing.expectEqual(res.items[0].Integer, 4);
-    testing.expectEqual(res.items[1].Integer, 10);
+    testing.expectEqual(value.root.Array.items.len, 2);
+    testing.expectEqual(value.root.Array.items[0].Integer, 4);
+    testing.expectEqual(value.root.Array.items[1].Integer, 10);
 }
 
 test "parse into array of isize numbers" {
-    const res = (try ValueTree.parse("li-4ei500ee", testing.allocator)).root.Array;
-    defer testing.allocator.free(res);
+    var value = try ValueTree.parse("li-4ei500ee", testing.allocator);
+    defer value.deinit();
 
-    testing.expectEqual(res.items.len, 2);
-    testing.expectEqual(res.items[0].Integer, -4);
-    testing.expectEqual(res.items[1].Integer, 500);
+    testing.expectEqual(value.root.Array.items.len, 2);
+    testing.expectEqual(value.root.Array.items[0].Integer, -4);
+    testing.expectEqual(value.root.Array.items[1].Integer, 500);
 }
 
 test "parse into empty array of bytes" {
-    const res = (try ValueTree.parse("le", testing.allocator)).root.Array;
-    defer testing.allocator.free(res);
+    var value = try ValueTree.parse("le", testing.allocator);
+    defer value.deinit();
 
-    testing.expectEqual(res.items.len, 0);
+    testing.expectEqual(value.root.Array.items.len, 0);
 }
 
 test "parse into array of bytes" {
-    var res = try ValueTree.parse("l3:foo5:helloe", testing.allocator);
-    defer res.deinit();
+    var value = try ValueTree.parse("l3:foo5:helloe", testing.allocator);
+    defer value.deinit();
 
-    testing.expectEqual(res.root.Array.items.len, 2);
-    testing.expectEqualSlices(u8, res.root.Array.items[0].String, "foo");
-    testing.expectEqualSlices(u8, res.root.Array.items[1].String, "hello");
+    testing.expectEqual(value.root.Array.items.len, 2);
+    testing.expectEqualSlices(u8, value.root.Array.items[0].String, "foo");
+    testing.expectEqualSlices(u8, value.root.Array.items[1].String, "hello");
 }
 
 test "parse into heterogeneous array" {
-    var res = try ValueTree.parse("l3:fooi20ee", testing.allocator);
-    defer res.deinit();
+    var value = try ValueTree.parse("l3:fooi20ee", testing.allocator);
+    defer value.deinit();
 
-    testing.expectEqual(res.root.Array.items.len, 2);
-    testing.expectEqualSlices(u8, res.root.Array.items[0].String, "foo");
-    testing.expectEqual(res.root.Array.items[1].Integer, 20);
+    testing.expectEqual(value.root.Array.items.len, 2);
+    testing.expectEqualSlices(u8, value.root.Array.items[0].String, "foo");
+    testing.expectEqual(value.root.Array.items[1].Integer, 20);
 }
 
 test "parse into array" {
