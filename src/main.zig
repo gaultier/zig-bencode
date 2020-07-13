@@ -79,6 +79,12 @@ pub fn mapGetEntry(node: *std.rb.Node) *Entry {
     return @fieldParentPtr(Entry, "node", node);
 }
 
+pub fn mapLookup(tree: *std.rb.Tree, key: []const u8) ?*Value {
+    var entry: Entry = undefined;
+    entry.key = key;
+    return tree.lookup(&entry.node).?.value;
+}
+
 fn mapCompare(l: *std.rb.Node, r: *std.rb.Node, contextIgnore: *std.rb.Tree) std.math.Order {
     var left = mapGetEntry(l);
     var right = mapGetEntry(r);
