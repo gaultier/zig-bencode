@@ -6,23 +6,7 @@ No other dependencies than the Zig standard library.
 
 ## Decode (parse)
 
-There are two APIs: a static one where we know at compile time what type to expect (for example in a configuratio n file), and a dynamic one where we do not know in advance what to expect
-and we get a tagged union as a result.
-
-Static API:
-
-```zig
-const Person = struct {
-    age: usize,
-    name: []const u8,
-};
-const person = try bencode.parse(Person, allocator, "d3:agei18e4:name3:joee");
-defer bencode.parseFree(Person, person, allocator);
-
-// `person` is now: Person{ .age = 18, .name = "joe" };
-```
-
-Dynamic API:
+API:
 
 ```zig
 var v = try bencode.ValueTree.parse("d3:agei18e4:name3:joee", allocator);

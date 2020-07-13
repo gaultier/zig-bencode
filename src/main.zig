@@ -225,6 +225,85 @@ fn parseBytes(comptime T: type, childType: type, allocator: *std.mem.Allocator, 
     return error.MissingSeparatingStringToken;
 }
 
+pub fn stringify(value: var, out_stream: var) @TypeOf(out_stream).Error!void {
+    const T = @TypeOf(value);
+    switch (@typeInfo(T)) {
+        .Int, .ComptimeInt => {
+            try out_stream.writeByte('i');
+            try std.fmt.formatIntValue(value, "", std.fmt.FormatOptions{}, out_stream);
+            try out_stream.writeByte('e');
+        },
+        .Union => {
+            if (comptime std.meta.trait.hasFn("bencodeStringify")(T)) {
+                return value.bencodeStringify(out_stream);
+            }
+
+            const info = @typeInfo(T).Union;
+            if (info.tag_type) |UnionTagType| {
+                inline for (info.fields) |u_field| {
+                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
+                        return try stringify(@field(value, u_field.name), out_stream);
+                    }
+                }
+            } else {
+                @compileError("Unable to stringify untagged union '" ++ @typeName(T) ++ "'");
+            }
+        },
+        .Struct => |S| {
+            if (comptime std.meta.trait.hasFn("bencodeStringify")(T)) {
+                return value.bencodeStringify(out_stream);
+            }
+
+            try out_stream.writeByte('d');
+            inline for (S.fields) |Field, field_i| {
+                // don't include void fields
+                if (Field.field_type == void) continue;
+
+                try stringify(Field.name, out_stream);
+                try stringify(@field(value, Field.name), out_stream);
+            }
+            try out_stream.writeByte('e');
+            return;
+        },
+        .ErrorSet => return stringify(@as([]const u8, @errorName(value)), out_stream),
+        .Pointer => |ptr_info| switch (ptr_info.size) {
+            .One => switch (@typeInfo(ptr_info.child)) {
+                .Array => {
+                    const Slice = []const std.meta.Elem(ptr_info.child);
+                    return stringify(@as(Slice, value), out_stream);
+                },
+                else => {
+                    // TODO: avoid loops?
+                    return stringify(value.*, out_stream);
+                },
+            },
+            // TODO: .Many when there is a sentinel (waiting for https://github.com/ziglang/zig/pull/3972)
+            .Slice => {
+                if (ptr_info.child == u8) {
+                    try std.fmt.formatIntValue(value.len, "", std.fmt.FormatOptions{}, out_stream);
+                    try out_stream.writeByte(':');
+                    try out_stream.writeAll(value[0..]);
+                    return;
+                }
+
+                try out_stream.writeByte('l');
+                for (value) |x, i| {
+                    try stringify(x, out_stream);
+                }
+                try out_stream.writeByte('e');
+                return;
+            },
+            else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
+        },
+        .Array => return stringify(&value, out_stream),
+        .Vector => |info| {
+            const array: [info.len]info.child = value;
+            return stringify(&array, out_stream);
+        },
+        else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
+    }
+}
+
 test "parse into number" {
     testing.expectEqual((try ValueTree.parse("i20e", testing.allocator)).root.Integer, 20);
 }
@@ -351,14 +430,6 @@ test "parse into heterogeneous array" {
     testing.expectEqual(res.root.Array.items.len, 2);
     testing.expectEqualSlices(u8, res.root.Array.items[0].String, "foo");
     testing.expectEqual(res.root.Array.items[1].Integer, 20);
-}
-
-test "parse into pointer" {
-    const value = try parse(*i8, testing.allocator, "i7e");
-    defer {
-        parseFree(*i8, value, testing.allocator);
-    }
-    testing.expectEqual(value.*, 7);
 }
 
 test "parse into array" {
