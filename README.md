@@ -10,9 +10,7 @@ API:
 
 ```zig
 var v = try bencode.ValueTree.parse("d3:agei18e4:name3:joee", allocator);
-defer {
-    v.deinit();
-}
+defer v.deinit();
 
 std.debug.warn("age={} name={}", .{
     v.root.Object.getValue("age").?.Integer,
@@ -27,22 +25,19 @@ See also the example `example.zig` and the tests for more details, e.g about err
 ### Try it out
 
 ```sh
-$ zig run bencode_to_yaml.zig --  <(echo "d8:integersli0ei5000ei-1ee11:hello,world3:foo3:abci-99ee")
+$ zig run bencode_to_yaml.zig --  <(echo "d3:abci-99e11:hello,world3:foo8:integersli0ei5000ei-1eee")
 
+
+"abc": -99
+"hello,world": "foo"
 "integers":
   - 0
   - 5000
   - -1
-"hello,world": "foo"
-"abc": -99
 
 $ zig run bencode_to_yaml.zig -- ~/Downloads/debian-10.4.0-amd64-netinst.iso.torrent
 <Output too big>
 ```
-
-### Deviations from the standard
-
-- No check that dictionary keys are ordered and unique (last one wins in case of duplicates)
 
 ## Encode (stringify)
 
@@ -55,11 +50,6 @@ const person = Person{ .age = 18, .name = "joe" };
 try bencode.stringify(person, std.io.getStdOut().writer());
 // Output: d3:agei18e4:name3:joee
 ```
-
-
-## Roadmap
-
-- Zero allocation static API
 
 ## License
 BSD-3
