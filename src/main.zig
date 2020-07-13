@@ -383,10 +383,10 @@ test "parse into bytes with missing separator" {
 }
 
 test "parse into empty array" {
-    const res = (try ValueTree.parse("le", testing.allocator)).root.Array;
-    defer testing.allocator.free(res);
+    var value = try ValueTree.parse("le", testing.allocator);
+    defer value.deinit();
 
-    testing.expectEqual(res.items.len, 0);
+    testing.expectEqual(value.root.Array.items.len, 0);
 }
 
 test "parse into array of u8 numbers" {
@@ -433,148 +433,52 @@ test "parse into heterogeneous array" {
 }
 
 test "parse into array" {
-    const value = try parse([2][]const u8, testing.allocator, "l3:foo5:helloe");
-    defer {
-        parseFree([2][]const u8, value, testing.allocator);
-    }
-    const slice = [2][]const u8{ "foo", "hello" };
-    testing.expectEqual(value.len, 2);
-    testing.expectEqualSlices(u8, value[0], "foo");
-    testing.expectEqualSlices(u8, value[1], "hello");
+    var value = try ValueTree.parse("l3:foo5:helloe", testing.allocator);
+    defer value.deinit();
+
+    testing.expectEqual(value.root.Array.items.len, 2);
+    testing.expectEqualSlices(u8, value.root.Array.items[0].String, "foo");
+    testing.expectEqualSlices(u8, value.root.Array.items[1].String, "hello");
 }
 
 test "parse array into bytes with invalid size" {
-    testing.expectError(error.InvalidByteLength, parse([3]u8, testing.allocator, "10:"));
+    testing.expectError(error.InvalidByteLength, ValueTree.parse("10:", testing.allocator));
 }
 
 test "parse into array too small" {
-    testing.expectError(error.UnexpectedChar, parse([1][]const u8, testing.allocator, "l3:foo5:helloe"));
+    testing.expectError(error.UnexpectedChar, ValueTree.parse("l3:foo5:helloe", testing.allocator));
 }
 
 test "parse into array too big" {
-    testing.expectError(error.MissingSeparatingStringToken, parse([3][]const u8, testing.allocator, "l3:foo5:helloe"));
+    testing.expectError(error.MissingSeparatingStringToken, ValueTree.parse("l3:foo5:helloe", testing.allocator));
 }
 
 test "parse bytes into array" {
-    testing.expectEqual(try parse([2]u8, testing.allocator, "2:fo"), @as([2]u8, "fo".*));
+    testing.expectEqualSlices(u8, (try ValueTree.parse("2:fo", testing.allocator)).root.String, "fo");
 }
 
 test "parse into array with missing terminator" {
-    testing.expectError(error.UnexpectedChar, parse([2][]const u8, testing.allocator, "l3:foo5:hello"));
+    testing.expectError(error.UnexpectedChar, ValueTree.parse("l3:foo5:hello", testing.allocator));
 }
 
-test "parse into struct" {
-    const TestValue = struct {
-        n: i16,
-        integers: [3]i16,
-    };
-
-    const value = try parse(TestValue, testing.allocator, "d8:integersli0ei5000ei-1ee1:ni9ee");
-    defer {
-        parseFree(TestValue, value, testing.allocator);
-    }
-
-    testing.expectEqual(value.n, 9);
-    testing.expectEqual(value.integers[0], 0);
-    testing.expectEqual(value.integers[1], 5_000);
-    testing.expectEqual(value.integers[2], -1);
-}
-
-test "parse into struct with missing fields, using default values" {
-    const TestValue = struct {
-        n: i16 = 0,
-        integers: [3]i16,
-    };
-
-    const value = try parse(TestValue, testing.allocator, "d8:integersli0ei5000ei-1eee");
-    defer {
-        parseFree(TestValue, value, testing.allocator);
-    }
-
-    testing.expectEqual(value.n, 0);
-    testing.expectEqual(value.integers[0], 0);
-    testing.expectEqual(value.integers[1], 5_000);
-    testing.expectEqual(value.integers[2], -1);
-}
-
-test "parse into struct with missing fields, without default values" {
-    const TestValue = struct {
-        n: i16,
-        integers: [3]i16,
-    };
-
-    testing.expectError(error.MissingField, parse(TestValue, testing.allocator, "d8:integersli0ei5000ei-1eee"));
-}
-
-test "parse into struct with unkown field" {
-    const TestValue = struct {
-        integers: [3]i16,
-    };
-
-    testing.expectError(error.UnknownField, parse(TestValue, testing.allocator, "d8:integersli0ei5000ei-1ee1:ni9ee"));
-}
-
-test "parse into empty struct" {
-    const TestValue = struct {};
-
-    testing.expectEqual(try parse(TestValue, testing.allocator, "de"), TestValue{});
-    testing.expectError(error.UnknownField, parse(TestValue, testing.allocator, "d1:ni9eee"));
-}
-
-test "parse into optional" {
-    testing.expectEqual(try parse(?isize, testing.allocator, "i5e"), 5);
-
-    var opt: ?u16 = null;
-    opt = parse(?u16, testing.allocator, "i999999999e") catch null;
-    testing.expectEqual(opt, null);
+test "parse into empty dictionary" {
+    var dict = (try ValueTree.parse("de", testing.allocator)).root.Object;
+    testing.expectEqual(dict.first(), null);
 }
 
 test "parse into array and reach recursion limit" {
-    testing.expectError(error.RecursionLimitReached, parse([][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]usize, testing.allocator, "l" ** 101 ++ "e" ** 101));
+    testing.expectError(error.RecursionLimitReached, ValueTree.parse("l" ** 101 ++ "e" ** 101, testing.allocator));
 }
 
-test "parse number into ValueTree" {
-    const value_tree = try ValueTree.parse("i-1e", testing.allocator);
-    testing.expectEqual(value_tree.root.Integer, -1);
-}
-
-test "parse bytes into ValueTree" {
-    var value_tree = try ValueTree.parse("9:abcdefghi", testing.allocator);
-    defer {
-        value_tree.deinit();
-    }
-
-    testing.expectEqualSlices(u8, value_tree.root.String, "abcdefghi");
-}
-
-test "parse empty array into ValueTree" {
-    var value_tree = try ValueTree.parse("le", testing.allocator);
-    defer {
-        value_tree.deinit();
-    }
-
-    testing.expectEqual(value_tree.root.Array.items.len, 0);
-}
-
-test "parse array into ValueTree" {
-    var value_tree = try ValueTree.parse("l6:abcdefi0ee", testing.allocator);
-    defer {
-        value_tree.deinit();
-    }
-
-    testing.expectEqualSlices(u8, value_tree.root.Array.items[0].String, "abcdef");
-    testing.expectEqual(value_tree.root.Array.items[1].Integer, 0);
-}
-
-test "parse object into ValueTree with duplicate keys" {
+test "parse object with duplicate keys" {
     testing.expectError(error.DuplicateDictionaryKeys, ValueTree.parse("d1:ni9e1:ni9ee", testing.allocator));
 }
 
-test "parse object into ValueTree with unordered keys" {
+test "parse object with unordered keys" {
     testing.expectError(error.UnorderedDictionaryKeys, ValueTree.parse("d1:ni9e1:mi9ee", testing.allocator));
 }
 
-test "parse object into ValueTree" {
+test "parse object" {
     var value_tree = try ValueTree.parse("d6:abcdef3:abc2:foi5ee", testing.allocator);
     defer {
         value_tree.deinit();
@@ -591,8 +495,8 @@ test "parse object into ValueTree" {
     testing.expectEqual(node.value.Integer, 5);
 }
 
-test "parse ValueTree and reach recursion limit" {
-    testing.expectError(error.RecursionLimitReached, ValueTree.parse("l" ** 101 ++ "e" ** 101, testing.allocator));
+test "parse into object and reach recursion limit" {
+    testing.expectError(error.RecursionLimitReached, ValueTree.parse("d" ** 101 ++ "e" ** 101, testing.allocator));
 }
 
 fn teststringify(expected: []const u8, value: var) !void {
