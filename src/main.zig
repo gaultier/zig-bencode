@@ -225,543 +225,132 @@ fn parseBytes(comptime T: type, childType: type, allocator: *std.mem.Allocator, 
     return error.MissingSeparatingStringToken;
 }
 
-pub fn parse(comptime T: type, allocator: *std.mem.Allocator, s: []const u8) anyerror!T {
-    return parseInternal(T, allocator, &s[0..], 0);
-}
-
-/// Releases resources created by `parse`.
-/// Should be called with the same type that were passed to `parse`
-pub fn parseFree(comptime T: type, value: T, allocator: *std.mem.Allocator) void {
-    switch (@typeInfo(T)) {
-        .Int, .ComptimeInt, .Enum => {},
-        .Optional => {
-            if (value) |v| {
-                parseFree(@TypeOf(value), value, allocator);
-            }
-        },
-        .Array => |arrayInfo| {
-            for (value) |v| {
-                parseFree(arrayInfo.child, v, allocator);
-            }
-        },
-        .Union => |unionInfo| {
-            if (unionInfo.tag_type) |UnionTagType| {
-                inline for (unionInfo.fields) |u_field| {
-                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
-                        parseFree(u_field.field_type, @field(value, u_field.name), allocator);
-                        break;
-                    }
-                }
-            } else {
-                unreachable;
-            }
-        },
-        .Struct => |structInfo| {
-            inline for (structInfo.fields) |field| {
-                parseFree(field.field_type, @field(value, field.name), allocator);
-            }
-        },
-        .Pointer => |ptrInfo| {
-            switch (ptrInfo.size) {
-                .One => {
-                    parseFree(ptrInfo.child, value.*, allocator);
-                    allocator.destroy(value);
-                },
-                .Slice => {
-                    for (value) |v| {
-                        parseFree(ptrInfo.child, v, allocator);
-                    }
-                    allocator.free(value);
-                },
-                else => unreachable,
-            }
-        },
-        else => unreachable,
-    }
-}
-
-fn parseInternal(comptime T: type, allocator: *std.mem.Allocator, s: *[]const u8, rec_count: usize) anyerror!T {
-    if (rec_count == 100) return error.RecursionLimitReached;
-
-    switch (@typeInfo(T)) {
-        .Int, .ComptimeInt => return parseNumber(T, s),
-        .Optional => |optionalInfo| {
-            return try parseInternal(optionalInfo.child, allocator, s, rec_count + 1);
-        },
-        .Array => |arrayInfo| {
-            if (match(s, 'l')) {
-                var i: usize = 0;
-                var r: T = undefined;
-
-                errdefer {
-                    var j: usize = 0;
-                    while (j < i) : (j += 1) {
-                        parseFree(arrayInfo.child, r[j], allocator);
-                    }
-                }
-
-                while (i < r.len) : (i += 1) {
-                    r[i] = try parseInternal(arrayInfo.child, allocator, s, rec_count + 1);
-                }
-                try expectChar(s, 'e');
-
-                return r;
-            } else {
-                if (arrayInfo.child != u8) return error.UnexpectedToken;
-                var r: T = undefined;
-
-                const optional_end_index = findFirstIndexOf(s.*[0..], ':');
-                if (optional_end_index) |end_index| {
-                    if (s.*[0..end_index].len == 0) return error.MissingLengthBytes;
-
-                    const n = try std.fmt.parseInt(usize, s.*[0..end_index], 10);
-                    if (n >= s.len) return error.InvalidByteLength;
-
-                    s.* = s.*[end_index..];
-                    try expectChar(s, ':');
-
-                    if (s.*.len != n) return error.InvalidByteLength;
-
-                    const bytes: []const u8 = s.*[0..n];
-                    std.mem.copy(u8, &r, bytes);
-
-                    s.* = s.*[n..];
-                    return r;
-                } else {
-                    return error.MissingTerminatingNumberToken;
-                }
-            }
-        },
-        .Struct => |structInfo| {
-            try expectChar(s, 'd');
-            var r: T = undefined;
-            var fields_seen = [_]bool{false} ** structInfo.fields.len;
-            errdefer {
-                inline for (structInfo.fields) |field, i| {
-                    if (fields_seen[i]) {
-                        parseFree(field.field_type, @field(r, field.name), allocator);
-                    }
-                }
-            }
-            while (!match(s, 'e')) {
-                const key = try parseBytes([]const u8, u8, allocator, s);
-                defer {
-                    parseFree([]const u8, key, allocator);
-                }
-                var found = false;
-                inline for (structInfo.fields) |field, i| {
-                    if (std.mem.eql(u8, key, field.name)) {
-                        found = true;
-                        fields_seen[i] = true;
-                        @field(r, field.name) = try parseInternal(field.field_type, allocator, s, rec_count + 1);
-                        break;
-                    }
-                }
-                if (!found) return error.UnknownField;
-            }
-
-            inline for (structInfo.fields) |field, i| {
-                if (!fields_seen[i]) {
-                    if (field.default_value) |default| {
-                        @field(r, field.name) = default;
-                    } else {
-                        return error.MissingField;
-                    }
-                }
-            }
-
-            return r;
-        },
-        .Union => |unionInfo| {
-            if (unionInfo.tag_type) |_| {
-                // try each of the union fields until we find one that matches
-                inline for (unionInfo.fields) |u_field| {
-                    if (parseInternal(u_field.field_type, allocator, s, rec_count + 1)) |value| {
-                        return @unionInit(T, u_field.name, value);
-                    } else |err| {
-                        // Bubble up error.OutOfMemory
-                        // Parsing some types won't have OutOfMemory in their
-                        // error-sets, for the condition to be valid, merge it in.
-                        if (@as(@TypeOf(err) || error{OutOfMemory}, err) == error.OutOfMemory) return err;
-                        // otherwise continue through the `inline for`
-                    }
-                }
-                return error.NoUnionMembersMatched;
-            } else {
-                @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
-            }
-        },
-        .Pointer => |ptrInfo| {
-            switch (ptrInfo.size) {
-                .One => {
-                    const r: T = try allocator.create(ptrInfo.child);
-                    r.* = try parseInternal(ptrInfo.child, allocator, s, rec_count + 1);
-                    return r;
-                },
-                .Slice => {
-                    const first_char = peek(s.*);
-                    if (first_char) |c| {
-                        if (c == 'l') return parseArray(T, ptrInfo.child, allocator, s, rec_count);
-                        if (ptrInfo.child == u8) return parseBytes(T, ptrInfo.child, allocator, s);
-                    }
-                    return error.UnexpectedChar;
-                },
-                else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
-            }
-        },
-        else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
-    }
-}
-
-pub fn parseNoAlloc(comptime T: type, value: *T, s: []const u8) anyerror!void {
-    return parseInternalNoAlloc(T, value, &s[0..], 0);
-}
-
-fn parseBytesNoAlloc(comptime T: type, value: *T, s: *[]const u8) anyerror!void {
-    const optional_end_index = findFirstIndexOf(s.*[0..], ':');
-    if (optional_end_index) |end_index| {
-        if (s.*[0..end_index].len == 0) return error.MissingLengthBytes;
-
-        const n = try std.fmt.parseInt(usize, s.*[0..end_index], 10);
-        if (value.*.len != n) return error.InvalidByteLength;
-
-        s.* = s.*[end_index..];
-        try expectChar(s, ':');
-
-        std.mem.copy(u8, value, s.*[0..n]);
-
-        s.* = s.*[n..];
-        return;
-    } else {
-        return error.MissingTerminatingNumberToken;
-    }
-}
-
-fn parseInternalNoAlloc(comptime T: type, value: *T, s: *[]const u8, rec_count: usize) anyerror!void {
-    if (rec_count == 100) return error.RecursionLimitReached;
-
-    switch (@typeInfo(T)) {
-        .Int, .ComptimeInt => {
-            value.* = try parseNumber(T, s);
-        },
-        .Optional => |optionalInfo| {
-            value.* = try parseNumber(optionalInfo.child, s);
-        },
-        .Array => |arrayInfo| {
-            if (match(s, 'l')) {
-                var i: usize = 0;
-
-                while (i < value.*.len) : (i += 1) {
-                    try parseInternalNoAlloc(arrayInfo.child, &value.*[i], s, rec_count + 1);
-                }
-                try expectChar(s, 'e');
-                return;
-            } else {
-                if (arrayInfo.child != u8) return error.UnexpectedToken;
-                try parseBytesNoAlloc(T, value, s);
-            }
-        },
-        .Struct => |structInfo| {
-            try expectChar(s, 'd');
-            var fields_seen = [_]bool{false} ** structInfo.fields.len;
-
-            while (!match(s, 'e')) {
-                var found = false;
-                inline for (structInfo.fields) |field, i| {
-                    if (!fields_seen[i]) {
-                        var key: [field.name.len]u8 = undefined;
-                        const cpy = s.*;
-
-                        try parseBytesNoAlloc([field.name.len]u8, &key, s);
-
-                        if (std.mem.eql(u8, key[0..], field.name)) {
-                            found = true;
-                            fields_seen[i] = true;
-                            try parseInternalNoAlloc(field.field_type, &@field(value, field.name), s, rec_count + 1);
-                            break;
-                        } else {
-                            s.* = cpy;
-                        }
-                    }
-                }
-                if (!found) return error.UnknownField;
-            }
-
-            inline for (structInfo.fields) |field, i| {
-                if (!fields_seen[i]) {
-                    if (field.default_value) |default| {
-                        @field(value, field.name) = default;
-                    } else {
-                        return error.MissingField;
-                    }
-                }
-            }
-
-            return;
-        },
-        // .Union => |unionInfo| {
-        //     if (unionInfo.tag_type) |_| {
-        //         // try each of the union fields until we find one that matches
-        //         inline for (unionInfo.fields) |u_field| {
-        //             if (parseInternal(u_field.field_type, allocator, s)) |value| {
-        //                 return @unionInit(T, u_field.name, value);
-        //             } else |err| {
-        //                 // Bubble up error.OutOfMemory
-        //                 // Parsing some types won't have OutOfMemory in their
-        //                 // error-sets, for the condition to be valid, merge it in.
-        //                 if (@as(@TypeOf(err) || error{OutOfMemory}, err) == error.OutOfMemory) return err;
-        //                 // otherwise continue through the `inline for`
-        //             }
-        //         }
-        //         return error.NoUnionMembersMatched;
-        //     } else {
-        //         @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
-        //     }
-        // },
-        .Pointer => |ptrInfo| {
-            switch (ptrInfo.size) {
-                .One => {
-                    value.* = try parseInternalNoAlloc(ptrInfo.child, s, rec_count + 1);
-                    return;
-                },
-                .Slice => {
-                    const first_char = peek(s.*);
-                    if (first_char) |c| {
-                        if (match(s, 'l')) {
-                            var i: usize = 0;
-                            while (i < value.*.len) : (i += 1) {
-                                try parseInternalNoAlloc(ptrInfo.child, &value.*[i], s, rec_count + 1);
-                            }
-                            try expectChar(s, 'e');
-                            return;
-                        }
-                        if (ptrInfo.child == u8) {
-                            try parseBytesNoAlloc(ptrInfo.child, value, s);
-                            return;
-                        }
-                    }
-                },
-                else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
-            }
-        },
-        else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
-    }
-}
-pub fn stringify(value: var, out_stream: var) @TypeOf(out_stream).Error!void {
-    const T = @TypeOf(value);
-    switch (@typeInfo(T)) {
-        .Int, .ComptimeInt => {
-            try out_stream.writeByte('i');
-            try std.fmt.formatIntValue(value, "", std.fmt.FormatOptions{}, out_stream);
-            try out_stream.writeByte('e');
-        },
-        .Union => {
-            if (comptime std.meta.trait.hasFn("bencodeStringify")(T)) {
-                return value.bencodeStringify(out_stream);
-            }
-
-            const info = @typeInfo(T).Union;
-            if (info.tag_type) |UnionTagType| {
-                inline for (info.fields) |u_field| {
-                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
-                        return try stringify(@field(value, u_field.name), out_stream);
-                    }
-                }
-            } else {
-                @compileError("Unable to stringify untagged union '" ++ @typeName(T) ++ "'");
-            }
-        },
-        .Struct => |S| {
-            if (comptime std.meta.trait.hasFn("bencodeStringify")(T)) {
-                return value.bencodeStringify(out_stream);
-            }
-
-            try out_stream.writeByte('d');
-            inline for (S.fields) |Field, field_i| {
-                // don't include void fields
-                if (Field.field_type == void) continue;
-
-                try stringify(Field.name, out_stream);
-                try stringify(@field(value, Field.name), out_stream);
-            }
-            try out_stream.writeByte('e');
-            return;
-        },
-        .ErrorSet => return stringify(@as([]const u8, @errorName(value)), out_stream),
-        .Pointer => |ptr_info| switch (ptr_info.size) {
-            .One => switch (@typeInfo(ptr_info.child)) {
-                .Array => {
-                    const Slice = []const std.meta.Elem(ptr_info.child);
-                    return stringify(@as(Slice, value), out_stream);
-                },
-                else => {
-                    // TODO: avoid loops?
-                    return stringify(value.*, out_stream);
-                },
-            },
-            // TODO: .Many when there is a sentinel (waiting for https://github.com/ziglang/zig/pull/3972)
-            .Slice => {
-                if (ptr_info.child == u8) {
-                    try std.fmt.formatIntValue(value.len, "", std.fmt.FormatOptions{}, out_stream);
-                    try out_stream.writeByte(':');
-                    try out_stream.writeAll(value[0..]);
-                    return;
-                }
-
-                try out_stream.writeByte('l');
-                for (value) |x, i| {
-                    try stringify(x, out_stream);
-                }
-                try out_stream.writeByte('e');
-                return;
-            },
-            else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
-        },
-        .Array => return stringify(&value, out_stream),
-        .Vector => |info| {
-            const array: [info.len]info.child = value;
-            return stringify(&array, out_stream);
-        },
-        else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
-    }
-}
-
 test "parse into number" {
-    testing.expectEqual((try parse(u8, testing.allocator, "i20e")), 20);
+    testing.expectEqual((try ValueTree.parse("i20e", testing.allocator)).root.Integer, 20);
 }
 
 test "parse into number with missing end token" {
-    testing.expectError(error.MissingTerminatingNumberToken, parse(u8, testing.allocator, "i20"));
+    testing.expectError(error.MissingTerminatingNumberToken, ValueTree.parse("i20", testing.allocator));
 }
 
 test "parse into number with missing start token" {
-    testing.expectError(error.UnexpectedChar, parse(u8, testing.allocator, "20e"));
+    testing.expectError(error.UnexpectedChar, ValueTree.parse("20e", testing.allocator));
 }
 
 test "parse into number 0" {
-    testing.expectEqual((try parse(u8, testing.allocator, "i0e")), 0);
+    testing.expectEqual((try ValueTree.parse("i0e", testing.allocator)).root.Integer, 0);
 }
 
 test "parse into negative number" {
-    testing.expectEqual((try parse(isize, testing.allocator, "i-42e")), -42);
+    testing.expectEqual((try ValueTree.parse("i-42e", testing.allocator)).root.Integer, -42);
 }
 
 test "parse empty string into number" {
-    testing.expectError(error.UnexpectedChar, parse(isize, testing.allocator, ""));
+    testing.expectError(error.UnexpectedChar, ValueTree.parse("", testing.allocator));
 }
 
 test "parse negative zero into number" {
-    testing.expectError(error.ForbiddenNegativeZeroNumber, parse(isize, testing.allocator, "i-0e"));
+    testing.expectError(error.ForbiddenNegativeZeroNumber, ValueTree.parse("i-0e", testing.allocator));
 }
 
 test "parse into overflowing number" {
-    testing.expectError(error.Overflow, parse(u8, testing.allocator, "i256e"));
-    testing.expectError(error.Overflow, parse(i8, testing.allocator, "i-129e"));
+    testing.expectError(error.Overflow, ValueTree.parse("i256e", testing.allocator));
+    testing.expectError(error.Overflow, ValueTree.parse("i-129e", testing.allocator));
 }
 
 test "parse into number with heading 0" {
-    testing.expectError(error.ForbiddenHeadingZeroInNumber, parse(u8, testing.allocator, "i01e"));
+    testing.expectError(error.ForbiddenHeadingZeroInNumber, ValueTree.parse("i01e", testing.allocator));
 }
 
 test "parse into number without digits" {
-    testing.expectError(error.MissingTerminatingNumberToken, parse(u8, testing.allocator, "i"));
-    testing.expectError(error.NoDigitsInNumber, parse(u8, testing.allocator, "ie"));
+    testing.expectError(error.MissingTerminatingNumberToken, ValueTree.parse("i", testing.allocator));
+    testing.expectError(error.NoDigitsInNumber, ValueTree.parse("ie", testing.allocator));
 }
 
 test "parse into bytes" {
-    const res = try parse([]u8, testing.allocator, "3:abc");
-    defer {
-        testing.allocator.free(res);
-    }
+    const res = (try ValueTree.parse("3:abc", testing.allocator)).root.String;
+    defer testing.allocator.free(res);
+
     testing.expectEqualSlices(u8, res, "abc");
 }
 
 test "parse into unicode bytes" {
-    const res = try parse([]u8, testing.allocator, "9:毛泽东");
-    defer {
-        testing.allocator.free(res);
-    }
+    const res = (try ValueTree.parse("9:毛泽东", testing.allocator)).root.String;
+    defer testing.allocator.free(res);
+
     testing.expectEqualSlices(u8, res, "毛泽东");
 }
 
 test "parse into bytes with invalid size" {
-    testing.expectError(error.InvalidByteLength, parse([]u8, testing.allocator, "10:foo"));
-    testing.expectError(error.InvalidByteLength, parse([]u8, testing.allocator, "10:"));
-    testing.expectError(error.MissingSeparatingStringToken, parse([]u8, testing.allocator, "10"));
+    testing.expectError(error.InvalidByteLength, ValueTree.parse("10:foo", testing.allocator));
+    testing.expectError(error.InvalidByteLength, ValueTree.parse("10:", testing.allocator));
+    testing.expectError(error.MissingSeparatingStringToken, ValueTree.parse("10", testing.allocator));
     // No way to detect this case I think since there is no terminating token
-    var value = try parse([]u8, testing.allocator, "3:abcd");
-    defer parseFree([]u8, value, testing.allocator);
-    testing.expectEqualSlices(u8, value, "abc");
+    var value = (try ValueTree.parse("3:abcd", testing.allocator));
+    defer value.deinit();
+    testing.expectEqualSlices(u8, value.root.String, "abc");
 }
 
 test "parse empty string into bytes" {
-    testing.expectError(error.UnexpectedChar, parse([]u8, testing.allocator, ""));
+    testing.expectError(error.UnexpectedChar, ValueTree.parse("", testing.allocator));
 }
 
 test "parse into bytes with missing length" {
-    testing.expectError(error.MissingLengthBytes, parse([]u8, testing.allocator, ":"));
+    testing.expectError(error.MissingLengthBytes, ValueTree.parse(":", testing.allocator));
 }
 
 test "parse into bytes with missing separator" {
-    testing.expectError(error.MissingSeparatingStringToken, parse([]u8, testing.allocator, "4"));
+    testing.expectError(error.MissingSeparatingStringToken, ValueTree.parse("4", testing.allocator));
 }
 
 test "parse into empty array" {
-    const res = try parse([]u8, testing.allocator, "le");
-    defer {
-        testing.allocator.free(res);
-    }
-    testing.expectEqual(res.len, 0);
+    const res = (try ValueTree.parse("le", testing.allocator)).root.Array;
+    defer testing.allocator.free(res);
+
+    testing.expectEqual(res.items.len, 0);
 }
 
 test "parse into array of u8 numbers" {
-    const res = try parse([]u8, testing.allocator, "li4ei10ee");
-    defer {
-        testing.allocator.free(res);
-    }
-    const arr = [_]u8{ 4, 10 };
-    testing.expectEqualSlices(u8, res, arr[0..]);
+    const res = (try ValueTree.parse("li4ei10ee", testing.allocator)).root.Array;
+    defer testing.allocator.free(res);
+
+    testing.expectEqual(res.items.len, 2);
+    testing.expectEqual(res.items[0].Integer, 4);
+    testing.expectEqual(res.items[1].Integer, 10);
 }
 
 test "parse into array of isize numbers" {
-    const res = try parse([]isize, testing.allocator, "li-4ei500ee");
-    defer {
-        testing.allocator.free(res);
-    }
-    const arr = [_]isize{ -4, 500 };
-    testing.expectEqualSlices(isize, res, arr[0..]);
+    const res = (try ValueTree.parse("li-4ei500ee", testing.allocator)).root.Array;
+    defer testing.allocator.free(res);
+
+    testing.expectEqual(res.items.len, 2);
+    testing.expectEqual(res.items[0].Integer, -4);
+    testing.expectEqual(res.items[1].Integer, 500);
 }
 
 test "parse into empty array of bytes" {
-    const res = try parse([][]const u8, testing.allocator, "le");
-    defer {
-        testing.allocator.free(res);
-    }
-    const arr = [_][]const u8{};
-    testing.expectEqual(res.len, 0);
+    const res = (try ValueTree.parse("le", testing.allocator)).root.Array;
+    defer testing.allocator.free(res);
+
+    testing.expectEqual(res.items.len, 0);
 }
 
 test "parse into array of bytes" {
-    var res = try parse([][]const u8, testing.allocator, "l3:foo5:helloe");
-    defer {
-        parseFree([][]const u8, res, testing.allocator);
-    }
-    const arr = [_][]const u8{ "foo", "hello" };
-    testing.expectEqual(res.len, 2);
-    testing.expectEqualSlices(u8, res[0], "foo");
-    testing.expectEqualSlices(u8, res[1], "hello");
+    var res = try ValueTree.parse("l3:foo5:helloe", testing.allocator);
+    defer res.deinit();
+
+    testing.expectEqual(res.root.Array.items.len, 2);
+    testing.expectEqualSlices(u8, res.root.Array.items[0].String, "foo");
+    testing.expectEqualSlices(u8, res.root.Array.items[1].String, "hello");
 }
 
 test "parse into heterogeneous array" {
-    const TestValue = union(enum) { Integer: isize, String: []const u8 };
+    var res = try ValueTree.parse("l3:fooi20ee", testing.allocator);
+    defer res.deinit();
 
-    var res = try parse([]TestValue, testing.allocator, "l3:fooi20ee");
-    defer {
-        parseFree([]TestValue, res, testing.allocator);
-    }
-    testing.expectEqual(res.len, 2);
-    testing.expectEqualSlices(u8, res[0].String, "foo");
-    testing.expectEqual(res[1].Integer, 20);
+    testing.expectEqual(res.root.Array.items.len, 2);
+    testing.expectEqualSlices(u8, res.root.Array.items[0].String, "foo");
+    testing.expectEqual(res.root.Array.items[1].Integer, 20);
 }
 
 test "parse into pointer" {
@@ -1042,83 +631,4 @@ test "stringify array of structs" {
 
 test "stringify vector" {
     try teststringify("li1ei1ee", @splat(2, @as(u32, 1)));
-}
-
-test "parse no alloc into bytes" {
-    var bytes: [4]u8 = undefined;
-    try parseNoAlloc([4]u8, &bytes, "4:abcd");
-    testing.expectEqualSlices(u8, bytes[0..], "abcd");
-}
-
-test "parse no alloc into bytes of size too small" {
-    var bytes: [3]u8 = undefined;
-    testing.expectError(error.InvalidByteLength, parseNoAlloc([3]u8, &bytes, "4:abcd"));
-}
-
-test "parse no alloc into bytes of size too big" {
-    var bytes: [5]u8 = undefined;
-    testing.expectError(error.InvalidByteLength, parseNoAlloc([5]u8, &bytes, "4:abcd"));
-}
-
-test "parse no alloc into array of numbers " {
-    var arr: [3]i16 = undefined;
-    try parseNoAlloc([3]i16, &arr, "li1ei99ei-99ee");
-    testing.expectEqualSlices(i16, arr[0..], &[_]i16{ 1, 99, -99 });
-}
-
-test "parse no alloc into array of numbers of size too small" {
-    var arr: [2]i16 = undefined;
-    testing.expectError(error.UnexpectedChar, parseNoAlloc([2]i16, &arr, "li1ei99ei-99ee"));
-}
-
-test "parse no alloc into array of numbers of size too big" {
-    var arr: [5]i16 = undefined;
-    testing.expectError(error.UnexpectedChar, parseNoAlloc([5]i16, &arr, "li1ei99ei-99ee"));
-}
-
-test "parse no alloc into array and reach recursion limit" {
-    var value: [1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1]usize = undefined;
-
-    testing.expectError(error.RecursionLimitReached, parseNoAlloc([1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1][1]usize, &value, "l" ** 111 ++ "e" ** 111));
-}
-
-test "parse no alloc into struct" {
-    const TestValue = struct {
-        n: i16,
-        x: usize,
-    };
-
-    var value: TestValue = undefined;
-    try parseNoAlloc(TestValue, &value, "d1:ni9e1:xi99ee");
-
-    testing.expectEqual(value.n, 9);
-    testing.expectEqual(value.x, 99);
-}
-
-test "parse no alloc into struct with array" {
-    const TestValue = struct {
-        integers: [3]i16,
-        n: i16,
-    };
-
-    var value: TestValue = undefined;
-    try parseNoAlloc(TestValue, &value, "d8:integersli0ei5000ei-1ee1:ni9ee");
-
-    testing.expectEqual(value.n, 9);
-    testing.expectEqual(value.integers[0], 0);
-    testing.expectEqual(value.integers[1], 5_000);
-    testing.expectEqual(value.integers[2], -1);
-}
-
-test "parse no alloc into struct with default value" {
-    const TestValue = struct {
-        n: i16,
-        x: usize = 5,
-    };
-
-    var value: TestValue = undefined;
-    try parseNoAlloc(TestValue, &value, "d1:ni9ee");
-
-    testing.expectEqual(value.n, 9);
-    testing.expectEqual(value.x, 5);
 }
