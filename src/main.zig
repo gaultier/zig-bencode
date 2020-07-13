@@ -490,7 +490,7 @@ test "parse object" {
     testing.expectEqual(node.value.Integer, 5);
 }
 
-test "parse into object and reach recursion limit" {
+test "parse into object at the limit of the recursion limit" {
     var s = std.ArrayList(u8).init(testing.allocator);
     var i: usize = 0;
 
@@ -499,17 +499,31 @@ test "parse into object and reach recursion limit" {
         try s.appendSlice("1:xd");
     }
     i = 0;
-    while (i <= 98) : (i += 1) {
+    while (i <= 99) : (i += 1) {
         try s.appendSlice("e");
     }
     defer s.deinit();
-    std.debug.warn("{}\n", .{s});
 
     var value = try ValueTree.parse(s.items, testing.allocator);
     defer value.deinit();
     testing.expect(value.root.Object.first() != null);
+}
 
-    // testing.expectError(error.RecursionLimitReached, ValueTree.parse("d" ** 101 ++ "e" ** 101, testing.allocator));
+test "parse into object and reach the recursion limit" {
+    var s = std.ArrayList(u8).init(testing.allocator);
+    var i: usize = 0;
+
+    try s.append('d');
+    while (i <= 99) : (i += 1) {
+        try s.appendSlice("1:xd");
+    }
+    i = 0;
+    while (i <= 100) : (i += 1) {
+        try s.appendSlice("e");
+    }
+    defer s.deinit();
+
+    testing.expectError(error.RecursionLimitReached, ValueTree.parse(s.items, testing.allocator));
 }
 
 fn teststringify(expected: []const u8, value: var) !void {
