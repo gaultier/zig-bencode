@@ -82,7 +82,8 @@ pub fn mapGetEntry(node: *std.rb.Node) *Entry {
 pub fn mapLookup(tree: *std.rb.Tree, key: []const u8) ?*Value {
     var entry: Entry = undefined;
     entry.key = key;
-    return tree.lookup(&entry.node).?.value;
+    var node = tree.lookup(&entry.node).?;
+    return &mapGetEntry(node).value;
 }
 
 fn mapCompare(l: *std.rb.Node, r: *std.rb.Node, contextIgnore: *std.rb.Tree) std.math.Order {
@@ -101,25 +102,23 @@ pub const Value = union(enum) {
     Array: Array,
     Object: ObjectMap,
 
-    pub fn stringifyValue(self: Value, out_stream: var) @TypeOf(out_stream).Error!void {
-        switch (self) {
+    pub fn stringifyValue(self: *Value, out_stream: var) @TypeOf(out_stream).Error!void {
+        switch (self.*) {
             .Integer => |value| {
                 try out_stream.writeByte('i');
                 try std.fmt.formatIntValue(value, "", std.fmt.FormatOptions{}, out_stream);
                 try out_stream.writeByte('e');
             },
-            .Object => |dictionary| {
+            .Object => |*dictionary| {
                 try out_stream.writeByte('d');
 
                 var node = dictionary.first();
-                var entry = mapGetEntry(&node);
-
-                while (node.node.next()) |entry| {
+                while (node) |it| {
+                    var entry = mapGetEntry(it);
                     try stringify(entry.key, out_stream);
                     try entry.value.stringifyValue(out_stream);
 
-                    node = node.next();
-                    entry = mapGetEntry(&node);
+                    node = it.next();
                 }
                 try out_stream.writeByte('e');
                 return;
@@ -132,7 +131,7 @@ pub const Value = union(enum) {
             },
             .Array => |array| {
                 try out_stream.writeByte('l');
-                for (array.items) |x, i| {
+                for (array.items) |*x, i| {
                     try x.stringifyValue(out_stream);
                 }
                 try out_stream.writeByte('e');
