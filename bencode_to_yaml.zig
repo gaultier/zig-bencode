@@ -24,10 +24,10 @@ fn outputUnicodeEscape(
     }
 }
 
-fn dump(value: bencode.Value, indent: usize) anyerror!void {
+fn dump(value: *bencode.Value, indent: usize) anyerror!void {
     var out_stream = std.io.getStdOut().writer();
 
-    switch (value) {
+    switch (value.*) {
         .Integer => |n| {
             try out_stream.print("{}", .{n});
         },
@@ -75,20 +75,23 @@ fn dump(value: bencode.Value, indent: usize) anyerror!void {
             try out_stream.print("\"", .{});
         },
         .Array => |arr| {
-            for (arr.items) |v| {
+            for (arr.items) |*v| {
                 try out_stream.print("\n", .{});
                 try out_stream.writeByteNTimes(' ', indent);
                 try out_stream.print("- ", .{});
                 try dump(v, indent + 2);
             }
         },
-        .Object => |obj| {
-            var it = obj.iterator();
-            while (it.next()) |kv| {
+        .Object => |*obj| {
+            var node = obj.first();
+            while (node) |it| {
+                const entry = bencode.mapGetEntry(it);
                 try out_stream.print("\n", .{});
                 try out_stream.writeByteNTimes(' ', indent);
-                try out_stream.print("\"{}\": ", .{kv.key});
-                try dump(kv.value, indent + 2);
+                try out_stream.print("\"{}\": ", .{entry.key});
+                try dump(&entry.value, indent + 2);
+
+                node = it.next();
             }
         },
     }
@@ -113,7 +116,7 @@ pub fn main() anyerror!void {
     defer {
         value.deinit();
     }
-    dump(value.root, 0) catch |err| {
+    dump(&value.root, 0) catch |err| {
         try std.io.getStdErr().writer().print("Error dumping: {}\n", .{err});
         return;
     };
