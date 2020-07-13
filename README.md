@@ -35,8 +35,18 @@ $ zig run bencode_to_yaml.zig --  <(echo "d3:abci-99e11:hello,world3:foo8:intege
   - 5000
   - -1
 
-$ zig run bencode_to_yaml.zig -- ~/Downloads/debian-10.4.0-amd64-netinst.iso.torrent
-<Output too big>
+$ zig run bencode_to_yaml.zig -- ~/Downloads/debian-10.4.0-amd64-netinst.iso.torrent | head
+
+
+"announce": "http://bttracker.debian.org:6969/announce"
+"comment": "\"Debian CD from cdimage.debian.org\""
+"creation date": 1589025369
+"httpseeds":
+  - "https://cdimage.debian.org/cdimage/release/10.4.0//srv/cdbuilder.debian.org/dst/deb-cd/weekly-builds/amd64/iso-cd/debian-10.4.0-amd64-netinst.iso"
+  - "https://cdimage.debian.org/cdimage/archive/10.4.0//srv/cdbuilder.debian.org/dst/deb-cd/weekly-builds/amd64/iso-cd/debian-10.4.0-amd64-netinst.iso"
+"info":
+  "length": 352321536
+  "name": "debian-10.4.0-amd64-netinst.iso"
 ```
 
 ## Encode (stringify)
