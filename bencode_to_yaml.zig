@@ -109,13 +109,9 @@ pub fn main() anyerror!void {
 
     const content = try file.readAllAlloc(allocator, (try file.stat()).size, std.math.maxInt(usize));
 
-    var value = bencode.ValueTree.parse(content, allocator) catch |err| {
-        try std.io.getStdErr().writer().print("Error parsing: {}\n", .{err});
-        return;
-    };
-    defer {
-        value.deinit();
-    }
+    var value = try bencode.ValueTree.parse(content, allocator);
+    defer value.deinit();
+
     dump(&value.root, 0) catch |err| {
         try std.io.getStdErr().writer().print("Error dumping: {}\n", .{err});
         return;

@@ -51,10 +51,10 @@ pub const ValueTree = struct {
                             return error.DuplicateDictionaryKeys; // EEXISTS
                         }
 
-                        const next_key = entry.*.node.next();
-                        if (next_key != null) {
-                            return error.UnorderedDictionaryKeys;
-                        }
+                        // const next_key = entry.*.node.next();
+                        // if (next_key != null) {
+                        //     return error.UnorderedDictionaryKeys;
+                        // }
                     }
                     return Value{ .Object = map };
                 },
@@ -163,6 +163,7 @@ fn parseNumber(comptime T: type, s: *[]const u8) anyerror!T {
     if (optional_end_index) |end_index| {
         if (s.*[0..end_index].len == 0) return error.NoDigitsInNumber;
         const n = try std.fmt.parseInt(T, s.*[0..end_index], 10);
+
         if (s.*[0] == '0' and n != 0) return error.ForbiddenHeadingZeroInNumber;
         if (s.*[0] == '-' and n == 0) return error.ForbiddenNegativeZeroNumber;
 
@@ -210,7 +211,11 @@ fn parseBytes(comptime T: type, childType: type, allocator: *std.mem.Allocator, 
     if (optional_end_index) |end_index| {
         if (s.*[0..end_index].len == 0) return error.MissingLengthBytes;
 
-        const n = try std.fmt.parseInt(usize, s.*[0..end_index], 10);
+        const n = std.fmt.parseInt(usize, s.*[0..end_index], 10) catch |err| {
+            std.debug.warn("Failed to parse `{}` as bytes length: {} s=`{}`\n", .{ s.*[0..end_index], err, s.* });
+            return err;
+        };
+
         s.* = s.*[end_index..];
         try expectChar(s, ':');
 
@@ -475,14 +480,23 @@ test "parse object with duplicate keys" {
 }
 
 test "parse object with unordered keys" {
-    testing.expectError(error.UnorderedDictionaryKeys, ValueTree.parse("d1:ni9e1:mi9ee", testing.allocator));
+    var value_tree = try ValueTree.parse("d1:ni9e1:mi8ee", testing.allocator);
+    defer value_tree.deinit();
+
+    var entry: Entry = undefined;
+    entry.key = "m";
+    var node = mapGetEntry(value_tree.root.Object.lookup(&entry.node).?);
+
+    testing.expectEqual(node.value.Integer, 8);
+
+    entry.key = "n";
+    node = mapGetEntry(value_tree.root.Object.lookup(&entry.node).?);
+    testing.expectEqual(node.value.Integer, 9);
 }
 
 test "parse object" {
     var value_tree = try ValueTree.parse("d6:abcdef3:abc2:foi5ee", testing.allocator);
-    defer {
-        value_tree.deinit();
-    }
+    defer value_tree.deinit();
 
     var entry: Entry = undefined;
     entry.key = "abcdef";
@@ -529,6 +543,12 @@ test "parse into object and reach the recursion limit" {
     defer s.deinit();
 
     testing.expectError(error.RecursionLimitReached, ValueTree.parse(s.items, testing.allocator));
+}
+
+test "parse into nested object" {
+    var value = try ValueTree.parse("d8:intervali900e5:peers2:ip13:91.121.105.214:porti6881e2:ip13:185.45.195.114e", testing.allocator);
+    defer value.deinit();
+    testing.expect(value.root.Object.first() != null);
 }
 
 fn teststringify(expected: []const u8, value: var) !void {
