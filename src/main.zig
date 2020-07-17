@@ -211,11 +211,7 @@ fn parseBytes(comptime T: type, childType: type, allocator: *std.mem.Allocator, 
     if (optional_end_index) |end_index| {
         if (s.*[0..end_index].len == 0) return error.MissingLengthBytes;
 
-        const n = std.fmt.parseInt(usize, s.*[0..end_index], 10) catch |err| {
-            std.debug.warn("Failed to parse `{}` as bytes length: {} s=`{}`\n", .{ s.*[0..end_index], err, s.* });
-            return err;
-        };
-
+        const n = try std.fmt.parseInt(usize, s.*[0..end_index], 10);
         s.* = s.*[end_index..];
         try expectChar(s, ':');
 
