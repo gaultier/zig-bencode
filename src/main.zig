@@ -636,12 +636,6 @@ test "parse into object and reach the recursion limit" {
     testing.expectError(error.RecursionLimitReached, ValueTree.parse(s.items, testing.allocator));
 }
 
-test "parse into nested object" {
-    var value = try ValueTree.parse("d8:intervali900e5:peers2:ip13:91.121.105.214:porti6881e2:ip13:185.45.195.114e", testing.allocator);
-    defer value.deinit();
-    testing.expect(value.root.Object.first() != null);
-}
-
 fn teststringify(expected: []const u8, value: anytype) !void {
     const ValidationOutStream = struct {
         const Self = @This();
