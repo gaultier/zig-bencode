@@ -3,7 +3,7 @@ const testing = std.testing;
 
 fn outputUnicodeEscape(
     codepoint: u21,
-    out_stream: var,
+    out_stream: anytype,
 ) !void {
     if (codepoint <= 0xFFFF) {
         // If the character is in the Basic Multilingual Plane (U+0000 through U+FFFF),
@@ -158,7 +158,7 @@ pub const ValueTree = struct {
         } else return error.UnexpectedChar;
     }
 
-    pub fn stringify(self: *const Self, out_stream: var) @TypeOf(out_stream).Error!void {
+    pub fn stringify(self: *const Self, out_stream: anytype) @TypeOf(out_stream).Error!void {
         return self.root.stringify(out_stream);
     }
 };
@@ -197,7 +197,7 @@ pub const Value = union(enum) {
     Array: Array,
     Object: ObjectMap,
 
-    pub fn stringifyValue(self: *Value, out_stream: var) @TypeOf(out_stream).Error!void {
+    pub fn stringifyValue(self: *Value, out_stream: anytype) @TypeOf(out_stream).Error!void {
         switch (self.*) {
             .Integer => |value| {
                 try out_stream.writeByte('i');
@@ -326,7 +326,7 @@ fn parseBytes(comptime T: type, childType: type, allocator: *std.mem.Allocator, 
     return error.MissingSeparatingStringToken;
 }
 
-pub fn stringify(value: var, out_stream: var) @TypeOf(out_stream).Error!void {
+pub fn stringify(value: anytype, out_stream: anytype) @TypeOf(out_stream).Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .Int, .ComptimeInt => {
@@ -642,7 +642,7 @@ test "parse into nested object" {
     testing.expect(value.root.Object.first() != null);
 }
 
-fn teststringify(expected: []const u8, value: var) !void {
+fn teststringify(expected: []const u8, value: anytype) !void {
     const ValidationOutStream = struct {
         const Self = @This();
         pub const OutStream = std.io.OutStream(*Self, Error, write);
