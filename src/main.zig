@@ -177,7 +177,7 @@ pub fn mapGetEntry(node: *std.rb.Node) *Entry {
 pub fn mapLookup(tree: *std.rb.Tree, key: []const u8) ?*Value {
     var entry: Entry = undefined;
     entry.key = key;
-    var node = tree.lookup(&entry.node).?;
+    var node = tree.lookup(&entry.node) orelse return null;
     return &mapGetEntry(node).value;
 }
 
