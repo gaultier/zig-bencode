@@ -405,6 +405,60 @@ pub fn stringify(value: anytype, out_stream: anytype) @TypeOf(out_stream).Error!
     }
 }
 
+pub fn isArray(v: Value) bool {
+    return switch (v) {
+        .Array => true,
+        else => false,
+    };
+}
+
+pub fn isInteger(v: Value) bool {
+    return switch (v) {
+        .Integer => true,
+        else => false,
+    };
+}
+pub fn isString(v: Value) bool {
+    return switch (v) {
+        .String => true,
+        else => false,
+    };
+}
+pub fn isObject(v: Value) bool {
+    return switch (v) {
+        .Object => true,
+        else => false,
+    };
+}
+
+test "isArray" {
+    std.testing.expectEqual(false, isArray(Value{ .Integer = 99 }));
+    std.testing.expectEqual(false, isArray(Value{ .String = "foo" }));
+    std.testing.expectEqual(false, isArray(Value{ .Object = ObjectMap.init(mapCompare) }));
+    std.testing.expectEqual(true, isArray(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
+}
+
+test "isInteger" {
+    std.testing.expectEqual(true, isInteger(Value{ .Integer = 99 }));
+    std.testing.expectEqual(false, isInteger(Value{ .String = "foo" }));
+    std.testing.expectEqual(false, isInteger(Value{ .Object = ObjectMap.init(mapCompare) }));
+    std.testing.expectEqual(false, isInteger(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
+}
+
+test "isString" {
+    std.testing.expectEqual(false, isString(Value{ .Integer = 99 }));
+    std.testing.expectEqual(true, isString(Value{ .String = "foo" }));
+    std.testing.expectEqual(false, isString(Value{ .Object = ObjectMap.init(mapCompare) }));
+    std.testing.expectEqual(false, isString(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
+}
+
+test "isObject" {
+    std.testing.expectEqual(false, isObject(Value{ .Integer = 99 }));
+    std.testing.expectEqual(false, isObject(Value{ .String = "foo" }));
+    std.testing.expectEqual(true, isObject(Value{ .Object = ObjectMap.init(mapCompare) }));
+    std.testing.expectEqual(false, isObject(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
+}
+
 test "parse into number" {
     testing.expectEqual((try ValueTree.parse("i20e", testing.allocator)).root.Integer, 20);
 }
