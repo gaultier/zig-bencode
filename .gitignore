@@ -1,3 +1,14 @@
 zig-cache
 *.o
 bencode_to_yaml
+zig-cache
+*.jpg
+*.pdf
+CHECKSUM
+*.lzma
+*.img
+*.qcow*
+*.iso
+.zorrent_state
+*.asc
+*.manifest
