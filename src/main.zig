@@ -24,10 +24,10 @@ fn outputUnicodeEscape(
     }
 }
 
-pub fn dump(value: *Value, indent: usize) anyerror!void {
+pub fn dump(value: Value, indent: usize) anyerror!void {
     var out_stream = std.io.getStdOut().writer();
 
-    switch (value.*) {
+    switch (value) {
         .Integer => |n| {
             try out_stream.print("{}", .{n});
         },
@@ -75,23 +75,19 @@ pub fn dump(value: *Value, indent: usize) anyerror!void {
             try out_stream.print("\"", .{});
         },
         .Array => |arr| {
-            for (arr.items) |*v| {
+            for (arr.items) |v| {
                 try out_stream.print("\n", .{});
                 try out_stream.writeByteNTimes(' ', indent);
                 try out_stream.print("- ", .{});
                 try dump(v, indent + 2);
             }
         },
-        .Object => |*obj| {
-            var node = obj.first();
-            while (node) |it| {
-                const entry = mapGetEntry(it);
+        .Map => |*map| {
+            for (map.items) |kv| {
                 try out_stream.print("\n", .{});
                 try out_stream.writeByteNTimes(' ', indent);
-                try out_stream.print("\"{}\": ", .{entry.key});
-                try dump(&entry.value, indent + 2);
-
-                node = it.next();
+                try out_stream.print("\"{}\": ", .{kv.key});
+                try dump(kv.value, indent + 2);
             }
         },
     }
@@ -131,27 +127,18 @@ pub const ValueTree = struct {
                     return Value{ .Array = arr };
                 },
                 'd' => {
-                    var map = ObjectMap.init(mapCompare);
+                    var map = Map.init(allocator);
 
                     try expectChar(input, 'd');
                     while (!match(input, 'e')) {
                         const k = try parseBytes([]const u8, u8, allocator, input);
                         const v = try parseInternal(input, allocator, rec_count + 1);
-                        var entry: *Entry = try allocator.create(Entry);
-                        errdefer allocator.destroy(entry);
 
-                        entry.*.key = k;
-                        entry.*.value = v;
-                        if (map.insert(&entry.*.node) != null) {
-                            return error.DuplicateDictionaryKeys; // EEXISTS
-                        }
+                        if (mapLookup(map, k) != null) return error.DuplicateDictionaryKeys; // EEXISTS
 
-                        // const next_key = entry.*.node.next();
-                        // if (next_key != null) {
-                        //     return error.UnorderedDictionaryKeys;
-                        // }
+                        try map.append(KV{ .key = try allocator.dupe(u8, k), .value = v });
                     }
-                    return Value{ .Object = map };
+                    return Value{ .Map = map };
                 },
                 else => error.UnexpectedChar,
             };
@@ -163,39 +150,27 @@ pub const ValueTree = struct {
     }
 };
 
-pub const ObjectMap = std.rb.Tree;
-pub const Entry = struct {
-    node: std.rb.Node,
+pub const KV = struct {
     key: []const u8,
     value: Value,
 };
 
-pub fn mapGetEntry(node: *std.rb.Node) *Entry {
-    return @fieldParentPtr(Entry, "node", node);
-}
-
-pub fn mapLookup(tree: *std.rb.Tree, key: []const u8) ?*Value {
-    var entry: Entry = undefined;
-    entry.key = key;
-    var node = tree.lookup(&entry.node) orelse return null;
-    return &mapGetEntry(node).value;
-}
-
-fn mapCompare(l: *std.rb.Node, r: *std.rb.Node, contextIgnore: *std.rb.Tree) std.math.Order {
-    var left = mapGetEntry(l);
-    var right = mapGetEntry(r);
-
-    return std.mem.order(u8, left.key, right.key);
-}
-
+pub const Map = std.ArrayList(KV);
 pub const Array = std.ArrayList(Value);
+
+pub fn mapLookup(map: Map, key: []const u8) ?*Value {
+    for (map.items) |*kv| {
+        if (std.mem.eql(u8, key, kv.key)) return &kv.value;
+    }
+    return null;
+}
 
 /// Represents a bencode value
 pub const Value = union(enum) {
     Integer: isize,
     String: []const u8,
     Array: Array,
-    Object: ObjectMap,
+    Map: Map,
 
     pub fn stringifyValue(self: *Value, out_stream: anytype) @TypeOf(out_stream).Error!void {
         switch (self.*) {
@@ -204,17 +179,13 @@ pub const Value = union(enum) {
                 try std.fmt.formatIntValue(value, "", std.fmt.FormatOptions{}, out_stream);
                 try out_stream.writeByte('e');
             },
-            .Object => |*dictionary| {
+            .Map => |*map| {
                 try out_stream.writeByte('d');
-
-                var node = dictionary.first();
-                while (node) |it| {
-                    var entry = mapGetEntry(it);
-                    try stringify(entry.key, out_stream);
-                    try entry.value.stringifyValue(out_stream);
-
-                    node = it.next();
+                for (map.items) |kv| {
+                    try stringifyValue(kv.key, out_stream);
+                    try stringifyValue(kv.value, out_stream);
                 }
+
                 try out_stream.writeByte('e');
                 return;
             },
@@ -424,9 +395,9 @@ pub fn isString(v: Value) bool {
         else => false,
     };
 }
-pub fn isObject(v: Value) bool {
+pub fn isMap(v: Value) bool {
     return switch (v) {
-        .Object => true,
+        .Map => true,
         else => false,
     };
 }
@@ -434,29 +405,29 @@ pub fn isObject(v: Value) bool {
 test "isArray" {
     std.testing.expectEqual(false, isArray(Value{ .Integer = 99 }));
     std.testing.expectEqual(false, isArray(Value{ .String = "foo" }));
-    std.testing.expectEqual(false, isArray(Value{ .Object = ObjectMap.init(mapCompare) }));
+    std.testing.expectEqual(false, isArray(Value{ .Map = Map.init(std.testing.allocator) }));
     std.testing.expectEqual(true, isArray(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
 }
 
 test "isInteger" {
     std.testing.expectEqual(true, isInteger(Value{ .Integer = 99 }));
     std.testing.expectEqual(false, isInteger(Value{ .String = "foo" }));
-    std.testing.expectEqual(false, isInteger(Value{ .Object = ObjectMap.init(mapCompare) }));
+    std.testing.expectEqual(false, isInteger(Value{ .Map = Map.init(std.testing.allocator) }));
     std.testing.expectEqual(false, isInteger(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
 }
 
 test "isString" {
     std.testing.expectEqual(false, isString(Value{ .Integer = 99 }));
     std.testing.expectEqual(true, isString(Value{ .String = "foo" }));
-    std.testing.expectEqual(false, isString(Value{ .Object = ObjectMap.init(mapCompare) }));
+    std.testing.expectEqual(false, isString(Value{ .Map = Map.init(std.testing.allocator) }));
     std.testing.expectEqual(false, isString(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
 }
 
-test "isObject" {
-    std.testing.expectEqual(false, isObject(Value{ .Integer = 99 }));
-    std.testing.expectEqual(false, isObject(Value{ .String = "foo" }));
-    std.testing.expectEqual(true, isObject(Value{ .Object = ObjectMap.init(mapCompare) }));
-    std.testing.expectEqual(false, isObject(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
+test "isMap" {
+    std.testing.expectEqual(false, isMap(Value{ .Integer = 99 }));
+    std.testing.expectEqual(false, isMap(Value{ .String = "foo" }));
+    std.testing.expectEqual(true, isMap(Value{ .Map = Map.init(std.testing.allocator) }));
+    std.testing.expectEqual(false, isMap(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
 }
 
 test "parse into number" {
@@ -611,50 +582,42 @@ test "parse into array with missing terminator" {
     testing.expectError(error.UnexpectedChar, ValueTree.parse("l3:foo5:hello", testing.allocator));
 }
 
-test "parse into empty dictionary" {
-    var dict = (try ValueTree.parse("de", testing.allocator)).root.Object;
-    testing.expectEqual(dict.first(), null);
+test "parse into empty map" {
+    var map = (try ValueTree.parse("de", testing.allocator)).root.Map;
+    testing.expectEqual(@as(usize, 0), map.items.len);
 }
 
 test "parse into array and reach recursion limit" {
     testing.expectError(error.RecursionLimitReached, ValueTree.parse("l" ** 101 ++ "e" ** 101, testing.allocator));
 }
 
-test "parse object with duplicate keys" {
+test "parse map with duplicate keys" {
     testing.expectError(error.DuplicateDictionaryKeys, ValueTree.parse("d1:ni9e1:ni9ee", testing.allocator));
 }
 
-test "parse object with unordered keys" {
+test "parse map with unordered keys" {
     var value_tree = try ValueTree.parse("d1:ni9e1:mi8ee", testing.allocator);
     defer value_tree.deinit();
 
-    var entry: Entry = undefined;
-    entry.key = "m";
-    var node = mapGetEntry(value_tree.root.Object.lookup(&entry.node).?);
+    var kv1 = mapLookup(value_tree.root.Map, "m");
+    testing.expectEqual(kv1.?.Integer, 8);
 
-    testing.expectEqual(node.value.Integer, 8);
-
-    entry.key = "n";
-    node = mapGetEntry(value_tree.root.Object.lookup(&entry.node).?);
-    testing.expectEqual(node.value.Integer, 9);
+    var kv2 = mapLookup(value_tree.root.Map, "n");
+    testing.expectEqual(kv2.?.Integer, 9);
 }
 
-test "parse object" {
+test "parse map" {
     var value_tree = try ValueTree.parse("d6:abcdef3:abc2:foi5ee", testing.allocator);
     defer value_tree.deinit();
 
-    var entry: Entry = undefined;
-    entry.key = "abcdef";
-    var node = mapGetEntry(value_tree.root.Object.lookup(&entry.node).?);
+    var kv1 = mapLookup(value_tree.root.Map, "abcdef");
+    testing.expectEqualSlices(u8, kv1.?.String, "abc");
 
-    testing.expectEqualSlices(u8, node.value.String, "abc");
-
-    entry.key = "fo";
-    node = mapGetEntry(value_tree.root.Object.lookup(&entry.node).?);
-    testing.expectEqual(node.value.Integer, 5);
+    var kv2 = mapLookup(value_tree.root.Map, "fo");
+    testing.expectEqual(kv2.?.Integer, 5);
 }
 
-test "parse into object at the limit of the recursion limit" {
+test "parse into map at the limit of the recursion limit" {
     var s = std.ArrayList(u8).init(testing.allocator);
     var i: usize = 0;
 
@@ -670,10 +633,10 @@ test "parse into object at the limit of the recursion limit" {
 
     var value = try ValueTree.parse(s.items, testing.allocator);
     defer value.deinit();
-    testing.expect(value.root.Object.first() != null);
+    testing.expect(value.root.Map.items.len > 0);
 }
 
-test "parse into object and reach the recursion limit" {
+test "parse into map and reach the recursion limit" {
     var s = std.ArrayList(u8).init(testing.allocator);
     var i: usize = 0;
 
