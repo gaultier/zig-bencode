@@ -8,19 +8,31 @@ No other dependencies than the Zig standard library.
 
 API:
 
-```zig
-var v = try bencode.ValueTree.parse("d3:agei18e4:name3:joee", allocator);
-defer v.deinit();
+`example_decode.zig`:
 
-std.debug.warn("age={} name={}", .{
-    v.root.Object.getValue("age").?.Integer,
-    v.root.Object.getValue("name").?.String,
-});
+```zig
+const std = @import("std");
+const bencode = @import("src/main.zig");
+
+pub fn main() anyerror!void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = &gpa.allocator;
+    var v = try bencode.ValueTree.parse("d3:agei18e4:name3:joee", allocator);
+    defer v.deinit();
+
+    if (bencode.mapLookup(v.root.Map, "age")) |age| {
+        if (bencode.isInteger(age.*)) std.debug.warn("age={} ", .{age.Integer});
+    }
+
+    if (bencode.mapLookup(v.root.Map, "name")) |name| {
+        if (bencode.isString(name.*)) std.debug.warn("name={}\n", .{name.String});
+    }
+}
 // Output: age=18 name=joe
 ```
 
 
-See also the example `example.zig` and the tests for more details, e.g about errors: `zig test src/main.zig`.
+See also the CLI utility `bencode_to_yaml.zig` and the tests for more details, e.g about errors: `zig test src/main.zig`.
 
 ### Try it out
 
@@ -50,6 +62,8 @@ $ zig run bencode_to_yaml.zig -- ~/Downloads/debian-10.4.0-amd64-netinst.iso.tor
 ```
 
 ## Encode (stringify)
+
+`example_encode.zig`:
 
 ```zig
 const Person = struct {
