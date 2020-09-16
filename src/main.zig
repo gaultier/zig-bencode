@@ -172,17 +172,17 @@ pub const Value = union(enum) {
     Array: Array,
     Map: Map,
 
-    pub fn stringifyValue(self: *Value, out_stream: anytype) @TypeOf(out_stream).Error!void {
-        switch (self.*) {
+    pub fn stringifyValue(self: Value, out_stream: anytype) @TypeOf(out_stream).Error!void {
+        switch (self) {
             .Integer => |value| {
                 try out_stream.writeByte('i');
                 try std.fmt.formatIntValue(value, "", std.fmt.FormatOptions{}, out_stream);
                 try out_stream.writeByte('e');
             },
-            .Map => |*map| {
+            .Map => |map| {
                 try out_stream.writeByte('d');
                 for (map.items) |kv| {
-                    try stringifyValue(kv.key, out_stream);
+                    try out_stream.writeAll(kv.key);
                     try stringifyValue(kv.value, out_stream);
                 }
 
@@ -197,7 +197,7 @@ pub const Value = union(enum) {
             },
             .Array => |array| {
                 try out_stream.writeByte('l');
-                for (array.items) |*x, i| {
+                for (array.items) |x, i| {
                     try x.stringifyValue(out_stream);
                 }
                 try out_stream.writeByte('e');
