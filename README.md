@@ -6,8 +6,6 @@ No other dependencies than the Zig standard library.
 
 ## Decode (parse)
 
-API:
-
 `example_decode.zig`:
 
 ```zig
