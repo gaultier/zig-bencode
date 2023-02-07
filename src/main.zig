@@ -313,8 +313,11 @@ pub fn stringify(value: anytype, out_stream: anytype) @TypeOf(out_stream).Error!
 
             const info = @typeInfo(T).Union;
             if (info.tag_type) |UnionTagType| {
-                inline for (info.fields) |u_field| {
-                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
+                inline for (info.fields) |u_field, index| {
+                    // I'm not sure what's going on here. I'm guessing we're trying to stringify correct union field based on some tag value. I think Zig has changed the union field type and doesn't embed something we need anymore.
+                    if (@enumToInt(@as(UnionTagType, value)) == index) {
+                    // This is what the code was, probably for an older version.
+                    // if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
                         return try stringify(@field(value, u_field.name), out_stream);
                     }
                 }
@@ -403,197 +406,201 @@ pub fn isMap(v: Value) bool {
     };
 }
 
+const expectEqual = testing.expectEqual;
+const expectError = testing.expectError;
+const expectEqualSlices = testing.expectEqualSlices;
+
 test "isArray" {
-    std.testing.expectEqual(false, isArray(Value{ .Integer = 99 }));
-    std.testing.expectEqual(false, isArray(Value{ .String = "foo" }));
-    std.testing.expectEqual(false, isArray(Value{ .Map = Map.init(std.testing.allocator) }));
-    std.testing.expectEqual(true, isArray(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
+    try expectEqual(false, isArray(Value{ .Integer = 99 }));
+    try expectEqual(false, isArray(Value{ .String = "foo" }));
+    try expectEqual(false, isArray(Value{ .Map = Map.init(std.testing.allocator) }));
+    try expectEqual(true, isArray(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
 }
 
 test "isInteger" {
-    std.testing.expectEqual(true, isInteger(Value{ .Integer = 99 }));
-    std.testing.expectEqual(false, isInteger(Value{ .String = "foo" }));
-    std.testing.expectEqual(false, isInteger(Value{ .Map = Map.init(std.testing.allocator) }));
-    std.testing.expectEqual(false, isInteger(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
+    try expectEqual(true, isInteger(Value{ .Integer = 99 }));
+    try expectEqual(false, isInteger(Value{ .String = "foo" }));
+    try expectEqual(false, isInteger(Value{ .Map = Map.init(std.testing.allocator) }));
+    try expectEqual(false, isInteger(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
 }
 
 test "isString" {
-    std.testing.expectEqual(false, isString(Value{ .Integer = 99 }));
-    std.testing.expectEqual(true, isString(Value{ .String = "foo" }));
-    std.testing.expectEqual(false, isString(Value{ .Map = Map.init(std.testing.allocator) }));
-    std.testing.expectEqual(false, isString(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
+    try expectEqual(false, isString(Value{ .Integer = 99 }));
+    try expectEqual(true, isString(Value{ .String = "foo" }));
+    try expectEqual(false, isString(Value{ .Map = Map.init(std.testing.allocator) }));
+    try expectEqual(false, isString(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
 }
 
 test "isMap" {
-    std.testing.expectEqual(false, isMap(Value{ .Integer = 99 }));
-    std.testing.expectEqual(false, isMap(Value{ .String = "foo" }));
-    std.testing.expectEqual(true, isMap(Value{ .Map = Map.init(std.testing.allocator) }));
-    std.testing.expectEqual(false, isMap(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
+    try expectEqual(false, isMap(Value{ .Integer = 99 }));
+    try expectEqual(false, isMap(Value{ .String = "foo" }));
+    try expectEqual(true, isMap(Value{ .Map = Map.init(std.testing.allocator) }));
+    try expectEqual(false, isMap(Value{ .Array = std.ArrayList(Value).init(std.testing.allocator) }));
 }
 
 test "parse into number" {
-    testing.expectEqual((try ValueTree.parse("i20e", testing.allocator)).root.Integer, 20);
+    try expectEqual((try ValueTree.parse("i20e", testing.allocator)).root.Integer, 20);
 }
 
 test "parse into number with missing end token" {
-    testing.expectError(error.MissingTerminatingNumberToken, ValueTree.parse("i20", testing.allocator));
+    try expectError(error.MissingTerminatingNumberToken, ValueTree.parse("i20", testing.allocator));
 }
 
 test "parse into number with missing start token" {
-    testing.expectError(error.MissingSeparatingStringToken, ValueTree.parse("20e", testing.allocator));
+    try testing.expectError(error.MissingSeparatingStringToken, ValueTree.parse("20e", testing.allocator));
 }
 
 test "parse into number 0" {
-    testing.expectEqual((try ValueTree.parse("i0e", testing.allocator)).root.Integer, 0);
+    try expectEqual((try ValueTree.parse("i0e", testing.allocator)).root.Integer, 0);
 }
 
 test "parse into negative number" {
-    testing.expectEqual((try ValueTree.parse("i-42e", testing.allocator)).root.Integer, -42);
+    try expectEqual((try ValueTree.parse("i-42e", testing.allocator)).root.Integer, -42);
 }
 
 test "parse empty string into number" {
-    testing.expectError(error.UnexpectedChar, ValueTree.parse("", testing.allocator));
+    try testing.expectError(error.UnexpectedChar, ValueTree.parse("", testing.allocator));
 }
 
 test "parse negative zero into number" {
-    testing.expectError(error.ForbiddenNegativeZeroNumber, ValueTree.parse("i-0e", testing.allocator));
+    try testing.expectError(error.ForbiddenNegativeZeroNumber, ValueTree.parse("i-0e", testing.allocator));
 }
 
 test "parse into overflowing number" {
-    testing.expectError(error.Overflow, ValueTree.parse("i999999999999999999999999e", testing.allocator));
-    testing.expectError(error.Overflow, ValueTree.parse("i-999999999999999999999999e", testing.allocator));
+    try testing.expectError(error.Overflow, ValueTree.parse("i999999999999999999999999e", testing.allocator));
+    try testing.expectError(error.Overflow, ValueTree.parse("i-999999999999999999999999e", testing.allocator));
 }
 
 test "parse into number with heading 0" {
-    testing.expectError(error.ForbiddenHeadingZeroInNumber, ValueTree.parse("i01e", testing.allocator));
+    try testing.expectError(error.ForbiddenHeadingZeroInNumber, ValueTree.parse("i01e", testing.allocator));
 }
 
 test "parse into number without digits" {
-    testing.expectError(error.MissingTerminatingNumberToken, ValueTree.parse("i", testing.allocator));
-    testing.expectError(error.NoDigitsInNumber, ValueTree.parse("ie", testing.allocator));
+    try testing.expectError(error.MissingTerminatingNumberToken, ValueTree.parse("i", testing.allocator));
+    try testing.expectError(error.NoDigitsInNumber, ValueTree.parse("ie", testing.allocator));
 }
 
 test "parse into bytes" {
     var value = (try ValueTree.parse("3:abc", testing.allocator)).root.String;
     defer testing.allocator.free(value);
 
-    testing.expectEqualSlices(u8, value, "abc");
+    try expectEqualSlices(u8, value, "abc");
 }
 
 test "parse into unicode bytes" {
     var value = (try ValueTree.parse("9:毛泽东", testing.allocator)).root.String;
     defer testing.allocator.free(value);
 
-    testing.expectEqualSlices(u8, value, "毛泽东");
+    try expectEqualSlices(u8, value, "毛泽东");
 }
 
 test "parse into bytes with invalid size" {
-    testing.expectError(error.InvalidByteLength, ValueTree.parse("10:foo", testing.allocator));
-    testing.expectError(error.InvalidByteLength, ValueTree.parse("10:", testing.allocator));
-    testing.expectError(error.MissingSeparatingStringToken, ValueTree.parse("10", testing.allocator));
+    try testing.expectError(error.InvalidByteLength, ValueTree.parse("10:foo", testing.allocator));
+    try testing.expectError(error.InvalidByteLength, ValueTree.parse("10:", testing.allocator));
+    try testing.expectError(error.MissingSeparatingStringToken, ValueTree.parse("10", testing.allocator));
     // No way to detect this case I think since there is no terminating token
     var value = (try ValueTree.parse("3:abcd", testing.allocator));
     defer value.deinit();
-    testing.expectEqualSlices(u8, value.root.String, "abc");
+    try expectEqualSlices(u8, value.root.String, "abc");
 }
 
 test "parse empty string into bytes" {
-    testing.expectError(error.UnexpectedChar, ValueTree.parse("", testing.allocator));
+    try testing.expectError(error.UnexpectedChar, ValueTree.parse("", testing.allocator));
 }
 
 test "parse into bytes with missing length" {
-    testing.expectError(error.UnexpectedChar, ValueTree.parse(":", testing.allocator));
+    try testing.expectError(error.UnexpectedChar, ValueTree.parse(":", testing.allocator));
 }
 
 test "parse into bytes with missing separator" {
-    testing.expectError(error.MissingSeparatingStringToken, ValueTree.parse("4", testing.allocator));
+    try testing.expectError(error.MissingSeparatingStringToken, ValueTree.parse("4", testing.allocator));
 }
 
 test "parse into empty array" {
     var value = try ValueTree.parse("le", testing.allocator);
     defer value.deinit();
 
-    testing.expectEqual(value.root.Array.items.len, 0);
+    try expectEqual(value.root.Array.items.len, 0);
 }
 
 test "parse into array of u8 numbers" {
     var value = try ValueTree.parse("li4ei10ee", testing.allocator);
     defer value.deinit();
 
-    testing.expectEqual(value.root.Array.items.len, 2);
-    testing.expectEqual(value.root.Array.items[0].Integer, 4);
-    testing.expectEqual(value.root.Array.items[1].Integer, 10);
+    try expectEqual(value.root.Array.items.len, 2);
+    try expectEqual(value.root.Array.items[0].Integer, 4);
+    try expectEqual(value.root.Array.items[1].Integer, 10);
 }
 
 test "parse into array of isize numbers" {
     var value = try ValueTree.parse("li-4ei500ee", testing.allocator);
     defer value.deinit();
 
-    testing.expectEqual(value.root.Array.items.len, 2);
-    testing.expectEqual(value.root.Array.items[0].Integer, -4);
-    testing.expectEqual(value.root.Array.items[1].Integer, 500);
+    try expectEqual(value.root.Array.items.len, 2);
+    try expectEqual(value.root.Array.items[0].Integer, -4);
+    try expectEqual(value.root.Array.items[1].Integer, 500);
 }
 
 test "parse into empty array of bytes" {
     var value = try ValueTree.parse("le", testing.allocator);
     defer value.deinit();
 
-    testing.expectEqual(value.root.Array.items.len, 0);
+    try expectEqual(value.root.Array.items.len, 0);
 }
 
 test "parse into array of bytes" {
     var value = try ValueTree.parse("l3:foo5:helloe", testing.allocator);
     defer value.deinit();
 
-    testing.expectEqual(value.root.Array.items.len, 2);
-    testing.expectEqualSlices(u8, value.root.Array.items[0].String, "foo");
-    testing.expectEqualSlices(u8, value.root.Array.items[1].String, "hello");
+    try expectEqual(value.root.Array.items.len, 2);
+    try expectEqualSlices(u8, value.root.Array.items[0].String, "foo");
+    try expectEqualSlices(u8, value.root.Array.items[1].String, "hello");
 }
 
 test "parse into heterogeneous array" {
     var value = try ValueTree.parse("l3:fooi20ee", testing.allocator);
     defer value.deinit();
 
-    testing.expectEqual(value.root.Array.items.len, 2);
-    testing.expectEqualSlices(u8, value.root.Array.items[0].String, "foo");
-    testing.expectEqual(value.root.Array.items[1].Integer, 20);
+    try expectEqual(value.root.Array.items.len, 2);
+    try expectEqualSlices(u8, value.root.Array.items[0].String, "foo");
+    try expectEqual(value.root.Array.items[1].Integer, 20);
 }
 
 test "parse into array" {
     var value = try ValueTree.parse("l3:foo5:helloe", testing.allocator);
     defer value.deinit();
 
-    testing.expectEqual(value.root.Array.items.len, 2);
-    testing.expectEqualSlices(u8, value.root.Array.items[0].String, "foo");
-    testing.expectEqualSlices(u8, value.root.Array.items[1].String, "hello");
+    try expectEqual(value.root.Array.items.len, 2);
+    try expectEqualSlices(u8, value.root.Array.items[0].String, "foo");
+    try expectEqualSlices(u8, value.root.Array.items[1].String, "hello");
 }
 
 test "parse array into bytes with invalid size" {
-    testing.expectError(error.InvalidByteLength, ValueTree.parse("10:", testing.allocator));
+    try testing.expectError(error.InvalidByteLength, ValueTree.parse("10:", testing.allocator));
 }
 
 test "parse bytes into array" {
     var value = try ValueTree.parse("2:fo", testing.allocator);
     defer value.deinit();
 
-    testing.expectEqualSlices(u8, value.root.String, "fo");
+    try expectEqualSlices(u8, value.root.String, "fo");
 }
 
 test "parse into array with missing terminator" {
-    testing.expectError(error.UnexpectedChar, ValueTree.parse("l3:foo5:hello", testing.allocator));
+    try testing.expectError(error.UnexpectedChar, ValueTree.parse("l3:foo5:hello", testing.allocator));
 }
 
 test "parse into empty map" {
     var map = (try ValueTree.parse("de", testing.allocator)).root.Map;
-    testing.expectEqual(@as(usize, 0), map.items.len);
+    try expectEqual(@as(usize, 0), map.items.len);
 }
 
 test "parse into array and reach recursion limit" {
-    testing.expectError(error.RecursionLimitReached, ValueTree.parse("l" ** 101 ++ "e" ** 101, testing.allocator));
+    try testing.expectError(error.RecursionLimitReached, ValueTree.parse("l" ** 101 ++ "e" ** 101, testing.allocator));
 }
 
 test "parse map with duplicate keys" {
-    testing.expectError(error.DuplicateDictionaryKeys, ValueTree.parse("d1:ni9e1:ni9ee", testing.allocator));
+    try testing.expectError(error.DuplicateDictionaryKeys, ValueTree.parse("d1:ni9e1:ni9ee", testing.allocator));
 }
 
 test "parse map with unordered keys" {
@@ -601,10 +608,10 @@ test "parse map with unordered keys" {
     defer value_tree.deinit();
 
     var kv1 = mapLookup(value_tree.root.Map, "m");
-    testing.expectEqual(kv1.?.Integer, 8);
+    try expectEqual(kv1.?.Integer, 8);
 
     var kv2 = mapLookup(value_tree.root.Map, "n");
-    testing.expectEqual(kv2.?.Integer, 9);
+    try expectEqual(kv2.?.Integer, 9);
 }
 
 test "parse map" {
@@ -612,10 +619,10 @@ test "parse map" {
     defer value_tree.deinit();
 
     var kv1 = mapLookup(value_tree.root.Map, "abcdef");
-    testing.expectEqualSlices(u8, kv1.?.String, "abc");
+    try expectEqualSlices(u8, kv1.?.String, "abc");
 
     var kv2 = mapLookup(value_tree.root.Map, "fo");
-    testing.expectEqual(kv2.?.Integer, 5);
+    try expectEqual(kv2.?.Integer, 5);
 }
 
 test "parse into map at the limit of the recursion limit" {
@@ -634,7 +641,7 @@ test "parse into map at the limit of the recursion limit" {
 
     var value = try ValueTree.parse(s.items, testing.allocator);
     defer value.deinit();
-    testing.expect(value.root.Map.items.len > 0);
+    try testing.expect(value.root.Map.items.len > 0);
 }
 
 test "parse into map and reach the recursion limit" {
@@ -651,13 +658,13 @@ test "parse into map and reach the recursion limit" {
     }
     defer s.deinit();
 
-    testing.expectError(error.RecursionLimitReached, ValueTree.parse(s.items, testing.allocator));
+    try testing.expectError(error.RecursionLimitReached, ValueTree.parse(s.items, testing.allocator));
 }
 
 fn teststringify(expected: []const u8, value: anytype) !void {
     const ValidationOutStream = struct {
         const Self = @This();
-        pub const OutStream = std.io.OutStream(*Self, Error, write);
+        pub const OutStream = std.io.Writer(*Self, Error, write);
         pub const Error = error{
             TooMuchData,
             DifferentData,
@@ -675,11 +682,11 @@ fn teststringify(expected: []const u8, value: anytype) !void {
 
         fn write(self: *Self, bytes: []const u8) Error!usize {
             if (self.expected_remaining.len < bytes.len) {
-                std.debug.warn(
+                std.log.warn(
                     \\====== expected this output: =========
-                    \\{}
+                    \\{s}
                     \\======== instead found this: =========
-                    \\{}
+                    \\{s}
                     \\======================================
                 , .{
                     self.expected_remaining,
@@ -688,11 +695,11 @@ fn teststringify(expected: []const u8, value: anytype) !void {
                 return error.TooMuchData;
             }
             if (!std.mem.eql(u8, self.expected_remaining[0..bytes.len], bytes)) {
-                std.debug.warn(
+                std.log.warn(
                     \\====== expected this output: =========
-                    \\{}
+                    \\{s}
                     \\======== instead found this: =========
-                    \\{}
+                    \\{s}
                     \\======================================
                 , .{
                     self.expected_remaining[0..bytes.len],
