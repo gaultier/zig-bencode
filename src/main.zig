@@ -86,7 +86,7 @@ pub fn dump(value: Value, indent: usize) anyerror!void {
             for (map.items) |kv| {
                 try out_stream.print("\n", .{});
                 try out_stream.writeByteNTimes(' ', indent);
-                try out_stream.print("\"{}\": ", .{kv.key});
+                try out_stream.print("\"{s}\": ", .{kv.key});
                 try dump(kv.value, indent + 2);
             }
         },
@@ -100,15 +100,16 @@ pub const ValueTree = struct {
         self.arena.deinit();
     }
 
-    pub fn parse(input: []const u8, allocator: *std.mem.Allocator) !ValueTree {
+    pub fn parse(input: []const u8, allocator: std.mem.Allocator) !ValueTree {
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
-        const value = try parseInternal(&input[0..], &arena.allocator, 0);
+        var mut_input = input;
+        const value = try parseInternal(&mut_input, arena.allocator(), 0);
 
         return ValueTree{ .arena = arena, .root = value };
     }
 
-    fn parseInternal(input: *[]const u8, allocator: *std.mem.Allocator, rec_count: usize) anyerror!Value {
+    fn parseInternal(input: *[]const u8, allocator: std.mem.Allocator, rec_count: usize) anyerror!Value {
         if (rec_count == 100) return error.RecursionLimitReached;
 
         if (peek(input.*)) |c| {
@@ -145,7 +146,7 @@ pub const ValueTree = struct {
         } else return error.UnexpectedChar;
     }
 
-    pub fn stringify(self: *const Self, out_stream: anytype) @TypeOf(out_stream).Error!void {
+    pub fn stringify(self: *const ValueTree, out_stream: anytype) @TypeOf(out_stream).Error!void {
         return self.root.stringify(out_stream);
     }
 };
@@ -197,7 +198,7 @@ pub const Value = union(enum) {
             },
             .Array => |array| {
                 try out_stream.writeByte('l');
-                for (array.items) |x, i| {
+                for (array.items) |x| {
                     try x.stringifyValue(out_stream);
                 }
                 try out_stream.writeByte('e');
@@ -265,14 +266,14 @@ fn parseArray(comptime T: type, childType: type, allocator: *std.mem.Allocator, 
     }
 
     while (!match(s, 'e')) {
-        const item = try parseInternal(childType, allocator, s, rec_count + 1);
+        const item = try ValueTree.parseInternal(childType, allocator, s, rec_count + 1);
         try arraylist.append(item);
     }
 
     return arraylist.toOwnedSlice();
 }
 
-fn parseBytes(comptime T: type, childType: type, allocator: *std.mem.Allocator, s: *[]const u8) anyerror!T {
+fn parseBytes(comptime T: type, comptime childType: type, allocator: std.mem.Allocator, s: *[]const u8) anyerror!T {
     const optional_end_index = findFirstIndexOf(s.*[0..], ':');
     if (optional_end_index) |end_index| {
         if (s.*[0..end_index].len == 0) return error.MissingLengthBytes;
@@ -327,7 +328,7 @@ pub fn stringify(value: anytype, out_stream: anytype) @TypeOf(out_stream).Error!
             }
 
             try out_stream.writeByte('d');
-            inline for (S.fields) |Field, field_i| {
+            inline for (S.fields) |Field| {
                 // don't include void fields
                 if (Field.field_type == void) continue;
 
@@ -359,7 +360,7 @@ pub fn stringify(value: anytype, out_stream: anytype) @TypeOf(out_stream).Error!
                 }
 
                 try out_stream.writeByte('l');
-                for (value) |x, i| {
+                for (value) |x| {
                     try stringify(x, out_stream);
                 }
                 try out_stream.writeByte('e');
