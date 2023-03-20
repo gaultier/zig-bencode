@@ -1,5 +1,11 @@
 # Bencode encoder/decoder
 
+<hr>
+
+⚠️ **NOTE: this project is not maintained, due to not having time to support pull requests and contributions, here is an active fork: https://github.com/anacrolix/zig-bencode.**
+
+<hr>
+
 [Bencode](https://en.wikipedia.org/wiki/Bencode) is an text encoding format, not too dissimilar from JSON.
 This library can encode and decode it, with an API and code close the `std.json` in the Zig standard library.
 No other dependencies than the Zig standard library.
